@@ -1,0 +1,19 @@
+# build output
+/bin/
+/dist/
+/snmpdigger
+*.deb
+*.tar.gz
+
+# go test / coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# editor / os junk
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
