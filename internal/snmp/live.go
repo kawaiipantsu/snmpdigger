@@ -253,6 +253,10 @@ func normalizeOID(s string) string {
 	return s
 }
 
+// VarFromPDU converts a raw gosnmp PDU to a Var. Used by the trap listener,
+// which receives PDUs outside the normal Get/Walk path.
+func VarFromPDU(pdu g.SnmpPDU) Var { return pduToVar(pdu, time.Now()) }
+
 func pduToVar(pdu g.SnmpPDU, now time.Time) Var {
 	oid := strings.TrimPrefix(pdu.Name, ".")
 	v := Var{OID: oid, Raw: pdu.Value, Time: now}

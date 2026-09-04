@@ -26,11 +26,12 @@ const (
 	tabBrowser
 	tabGraph
 	tabWatch
+	tabTraps
 	tabCatalog
 	tabSettings
 )
 
-var tabNames = []string{"Discovery", "System", "Interfaces", "Browser", "Graph", "Watch", "Catalog", "Settings"}
+var tabNames = []string{"Discovery", "System", "Interfaces", "Browser", "Graph", "Watch", "Traps", "Catalog", "Settings"}
 
 // Options configures a TUI run.
 type Options struct {
@@ -75,6 +76,7 @@ type Model struct {
 	browser   browserView
 	graph     graphView
 	watch     watchView
+	traps     trapView
 	discovery discoveryView
 	catalog   catalogView
 	settings  settingsView
@@ -106,6 +108,7 @@ func newModel(cfg *config.Config, opts Options) *Model {
 		browser:    newBrowserView(st),
 		graph:      newGraphView(st, cfg.UI.GraphHistory),
 		watch:      newWatchView(st, cfg),
+		traps:      newTrapView(st, cfg.UI.TrapPort),
 		discovery:  newDiscoveryView(st, cfg.Last),
 		catalog:    newCatalogView(st),
 		settings:   settingsView{},
@@ -163,6 +166,7 @@ func (m *Model) applyTheme() {
 	m.browser.setTheme(m.st)
 	m.graph.setTheme(m.st)
 	m.watch.setTheme(m.st)
+	m.traps.setTheme(m.st)
 	m.discovery.setTheme(m.st)
 	m.catalog.setTheme(m.st)
 	if m.showConnect {
@@ -249,6 +253,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanUpdateMsg, asnResolvedMsg:
 		return m, m.discovery.update(m, msg)
 
+	case trapMsg:
+		return m, m.traps.update(m, msg)
+
 	case openConnectMsg:
 		m.connect = newConnectModel(m.st, mergeConnection(m.cfg.Last, msg.conn))
 		m.showConnect = true
@@ -313,7 +320,7 @@ func (m *Model) onKey(msg tea.KeyMsg) tea.Cmd {
 			m.connect = newConnectModel(m.st, m.cfg.Last)
 			m.showConnect = true
 			return status("Enter the SNMP connection details", stInfo, false)
-		case "1", "2", "3", "4", "5", "6", "7", "8":
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 			if n := tabID(msg.String()[0] - '1'); int(n) < len(tabNames) {
 				m.activeTab = n
 				return m.onTabSwitch()
@@ -346,6 +353,8 @@ func (m *Model) capturing() bool {
 		return m.ifaces.filtering
 	case tabWatch:
 		return m.watch.filtering
+	case tabTraps:
+		return m.traps.filtering
 	case tabDiscovery:
 		return m.discovery.scanning || m.discovery.resolving ||
 			m.discovery.focus == dfTarget || m.discovery.focus == dfComm
@@ -369,6 +378,8 @@ func (m *Model) updateActive(msg tea.Msg) tea.Cmd {
 		return m.graph.update(m, msg)
 	case tabWatch:
 		return m.watch.update(m, msg)
+	case tabTraps:
+		return m.traps.update(m, msg)
 	case tabDiscovery:
 		return m.discovery.update(m, msg)
 	case tabCatalog:
@@ -471,6 +482,8 @@ func (m *Model) activeView() string {
 		return m.graph.view(m)
 	case tabWatch:
 		return m.watch.view(m)
+	case tabTraps:
+		return m.traps.view(m)
 	case tabDiscovery:
 		return m.discovery.view(m)
 	case tabCatalog:

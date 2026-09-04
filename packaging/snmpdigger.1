@@ -52,8 +52,12 @@ Values are polled continuously on an adjustable interval.
 Tabs: Discovery, System (device fingerprinting), Interfaces (a live IF\-MIB
 dashboard with per\-port bit/s and utilisation), Browser, Graph (line, bar,
 gauge, sparkline, big\-number or heatmap), Watch (a persistent pin\-board of
-objects), Catalog (an offline MIB module/object reference plus on\-demand MIB
-download) and Settings.  The
+objects), Traps (a built\-in SNMP trap/inform listener \(em binding udp/162
+needs root or
+.BR setcap (8)
+.IR cap_net_bind_service ),
+Catalog (an offline MIB module/object reference plus on\-demand MIB download)
+and Settings.  The
 .B discover
 sub\-command and tab sweep for SNMP\-speaking hosts by IPv4 CIDR range, by AS
 number

@@ -130,6 +130,8 @@ func (m *Model) renderHelpLine(width int) string {
 		h = m.graph.help()
 	case tabWatch:
 		h = m.watch.help()
+	case tabTraps:
+		h = m.traps.help()
 	case tabDiscovery:
 		h = m.discovery.help()
 	case tabCatalog:

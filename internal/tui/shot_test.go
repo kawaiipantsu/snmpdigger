@@ -110,6 +110,25 @@ func TestCaptureFrames(t *testing.T) {
 		m, _ = updateModel(m, pollResultMsg{scope: "watch", vars: pv, at: time.Now().Add(time.Duration(i*3) * time.Second)})
 	}
 
+	// Traps: fake a listening session with a few received traps
+	m.traps.listening = true
+	tBase := time.Date(2026, 9, 4, 13, 36, 40, 0, time.Local)
+	m.traps.traps = []trapRecord{
+		{at: tBase, src: "10.0.1.9", version: "v2c", community: "public",
+			trapOID: "1.3.6.1.6.3.1.1.5.4", trapName: "linkUp", uptime: "4h12m0s",
+			vars: []trapVarb{{oid: "1.3.6.1.2.1.2.2.1.1.3", name: "ifIndex.3", typ: "Integer", val: "3"},
+				{oid: "1.3.6.1.2.1.2.2.1.7.3", name: "ifAdminStatus.3", typ: "Integer", val: "1"}}},
+		{at: tBase.Add(9 * time.Second), src: "10.0.1.9", version: "v2c", community: "public",
+			trapOID: "1.3.6.1.6.3.1.1.5.3", trapName: "linkDown", uptime: "4h12m9s",
+			vars: []trapVarb{{oid: "1.3.6.1.2.1.2.2.1.1.7", name: "ifIndex.7", typ: "Integer", val: "7"}}},
+		{at: tBase.Add(23 * time.Second), src: "192.168.7.1", version: "v1", community: "trapcomm",
+			trapOID: "1.3.6.1.4.1.9.0.1", trapName: "enterpriseSpecific", uptime: "31m2s",
+			vars: []trapVarb{{oid: "1.3.6.1.4.1.9.9.13.1.3.1.3.1", name: "ciscoEnvMonTemperatureState", typ: "Integer", val: "3"}}},
+		{at: tBase.Add(31 * time.Second), src: "10.0.2.50", version: "v2c", community: "public", inform: true,
+			trapOID: "1.3.6.1.6.3.1.1.5.1", trapName: "coldStart", uptime: "0h00m4s"},
+	}
+	m.traps.sel = len(m.traps.traps) - 1
+
 	// scroll the Catalog down so a mid-list module is selected (exercises the
 	// left-pane scroll offset that used to overflow)
 	m.activeTab = tabCatalog
@@ -130,6 +149,7 @@ func TestCaptureFrames(t *testing.T) {
 		tabBrowser:    "walk complete — 214 objects under 1.3.6.1.2.1 · polling every 3s",
 		tabGraph:      "graphing lmTempSensorsValue.1 · 90 samples · line chart",
 		tabWatch:      "3 objects watched · saved to ~/.config/snmpdigger/config.yaml",
+		tabTraps:      "listening for SNMP traps on udp/162 · 4 received",
 		tabDiscovery:  "ready — pick CIDR / ASN / LOCAL and press Start scan",
 		tabCatalog:    "catalog: 31 modules · 340 objects · offline reference",
 	}
@@ -145,6 +165,7 @@ func TestCaptureFrames(t *testing.T) {
 		{"SNMPDIGGER_SHOT_DISCOVERY", tabDiscovery},
 		{"SNMPDIGGER_SHOT_INTERFACES", tabInterfaces},
 		{"SNMPDIGGER_SHOT_WATCH", tabWatch},
+		{"SNMPDIGGER_SHOT_TRAPS", tabTraps},
 	}
 	for _, s := range shots {
 		path := os.Getenv(s.env)

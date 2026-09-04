@@ -57,6 +57,9 @@ range and it sweeps the network for anything that answers SNMP.
 </p>
 <p align="center">
   <img src="assets/screen-discovery.png" width="49%" alt="Discovery tab — CIDR / ASN / local sweep for SNMP agents">
+  <img src="assets/screen-traps.png" width="49%" alt="Traps tab — live SNMP trap / inform listener">
+</p>
+<p align="center">
   <img src="assets/screen-watch.png" width="49%" alt="Watch tab — pinned objects with live values and sparklines">
 </p>
 
@@ -70,6 +73,7 @@ range and it sweeps the network for anything that answers SNMP.
 | **Browser** | walks the MIB/OID tree on connect; table of **numeric OID + human name + type + value + age**, polled every 1–5 s. `/` fuzzy search &middot; `f` filter by type &middot; `s` sort &middot; `enter` drill &middot; `backspace` up &middot; `g` graph &middot; `space` watch &middot; `e` export. |
 | **Graph** | pick any numeric OID, watch it live. Chart types: **line** (braille), **bars**, **sparkline**, **gauge**, huge **big-number**, **heatmap**. `t` cycles type &middot; `d` toggles raw vs per-second rate for counters &middot; `o` opens a fuzzy object picker. |
 | **Watch** | a pin-board of objects gathered from anywhere in the app (`space`). Each shows its live value, per-second rate, a sparkline and min/max; the list is **persisted to the config** so it survives restarts. `r` raw↔rate &middot; `g` graph &middot; `e` export. |
+| **Traps** | a built-in **SNMP trap / inform listener**. `l` binds `udp/162` (or `P` cycles to a high port when you're not root) and every incoming v1 / v2c / v3 notification is decoded live — time, source, version, resolved trap OID, and all varbinds with names — with a detail pane for the selected one. `/` filter &middot; `f` follow &middot; `x` clear &middot; `e` export to CSV. |
 | **Discovery** | the default landing tab. Sweep by **CIDR**, by **AS number** (`ASN` mode resolves every announced IPv4 prefix via RIPEstat and scans them all), or **LOCAL** (this host's private interface networks plus the common LAN /24s). Each address gets a **fast liveness probe** (one tiny GET, ~400 ms, no retries) and only responders get a full identify pass — a /24 finishes in well under a second, a /16 in a minute or so — and hits **appear in the table as they're found**, not at the end. Multi-range sweeps are streamed and cancellable; `enter` on a row opens the connection dialog **pre-filled**; `e` exports. Head-less too: `snmpdigger discover 192.168.1.0/24 \| --asn AS13335 \| --local`. |
 | **Catalog** | an offline reference of known MIB modules and their notable objects — the full IETF/standard set (SNMPv2-MIB, IF-MIB, IP/TCP/UDP-MIB, HOST-RESOURCES-MIB, ENTITY-MIB, BRIDGE/Q-BRIDGE, LLDP, UPS-MIB, Printer-MIB…) plus the big firewall and network vendors (Cisco, Juniper, MikroTik, Fortinet, Palo Alto, Check Point, SonicWall, Sophos, WatchGuard, Arista, HPE/Aruba, Huawei, Nokia, Extreme). Browse by vendor, search across everything, `enter` to walk that subtree on the live device or `g` to graph it. Fetch additional vendor MIBs on demand into `~/.config/snmpdigger/mibs`. |
 | **Settings** | poll interval, timeouts, retries, GETBULK tuning, graph history depth, theme (`thugs` light-grey/cyan/dark · `ember` · `matrix` · `mono`), default walk scope, secret masking. Persisted to `~/.config/snmpdigger/config.yaml` (XDG-aware). |

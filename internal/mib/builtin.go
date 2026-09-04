@@ -15,6 +15,17 @@ var builtin = map[string]string{
 	"1.3.6.1.6":   "snmpV2",
 	"1.3.6.1.6.3": "snmpModules",
 
+	// --- notifications / traps (SNMPv2-MIB, RFC 3418) ---
+	"1.3.6.1.6.3.1.1.4.1": "snmpTrapOID",
+	"1.3.6.1.6.3.1.1.4.3": "snmpTrapEnterprise",
+	"1.3.6.1.6.3.1.1.5":   "snmpTraps",
+	"1.3.6.1.6.3.1.1.5.1": "coldStart",
+	"1.3.6.1.6.3.1.1.5.2": "warmStart",
+	"1.3.6.1.6.3.1.1.5.3": "linkDown",
+	"1.3.6.1.6.3.1.1.5.4": "linkUp",
+	"1.3.6.1.6.3.1.1.5.5": "authenticationFailure",
+	"1.3.6.1.6.3.1.1.5.6": "egpNeighborLoss",
+
 	// --- system (SNMPv2-MIB) ---
 	"1.3.6.1.2.1.1":       "system",
 	"1.3.6.1.2.1.1.1":     "sysDescr",

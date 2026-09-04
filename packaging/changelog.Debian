@@ -1,3 +1,14 @@
+snmpdigger (0.2.2-1) unstable; urgency=medium
+
+  * New Traps tab: a built-in SNMP trap / inform listener (v1 / v2c / v3),
+    bind udp/162 (or a high port), varbinds decoded and named live, CSV
+    export. Trap port persisted to config.
+  * discover: two-phase probe (fast liveness GET, then identify only
+    responders) - a dead /24 drops from ~4s to <0.5s; results stream into
+    the TUI table and CLI as they are found.
+
+ -- kawaiipantsu <12233528+kawaiipantsu@users.noreply.github.com>  Fri, 04 Sep 2026 11:00:00 +0000
+
 snmpdigger (0.2.0-1) unstable; urgency=medium
 
   * New Interfaces tab: live IF-MIB dashboard with per-port bit/s,

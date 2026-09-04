@@ -49,6 +49,7 @@ type UI struct {
 	GraphHistory     int    `yaml:"graph_history"`      // samples kept per graphed OID
 	DefaultWalkScope string `yaml:"default_walk_scope"` // mib-2 | enterprises | whole
 	MaskSecrets      bool   `yaml:"mask_secrets"`       // hide community/passwords in header
+	TrapPort         int    `yaml:"trap_port"`          // UDP port the trap listener binds
 }
 
 // Config is the whole persisted document.
@@ -86,6 +87,7 @@ func Default() *Config {
 			GraphHistory:     120,
 			DefaultWalkScope: "mib-2",
 			MaskSecrets:      true,
+			TrapPort:         162,
 		},
 		Last: Connection{
 			Host:      "",
@@ -229,5 +231,8 @@ func (c *Config) normalize() {
 	}
 	if c.UI.DefaultWalkScope == "" {
 		c.UI.DefaultWalkScope = "mib-2"
+	}
+	if c.UI.TrapPort <= 0 || c.UI.TrapPort > 65535 {
+		c.UI.TrapPort = 162
 	}
 }
