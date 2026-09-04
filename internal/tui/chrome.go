@@ -72,7 +72,7 @@ func (m *Model) renderTabs(width int) string {
 	st := m.st
 	var parts []string
 	for i, name := range tabNames {
-		label := fmt.Sprintf("%d %s", i+1, name)
+		label := fmt.Sprintf("F%d %s", i+1, name)
 		if tabID(i) == m.activeTab {
 			parts = append(parts, st.TabActive.Render(label))
 		} else {
@@ -128,6 +128,8 @@ func (m *Model) renderHelpLine(width int) string {
 		h = m.browser.help()
 	case tabGraph:
 		h = m.graph.help()
+	case tabSummary:
+		h = m.summary.help()
 	case tabWatch:
 		h = m.watch.help()
 	case tabTraps:
@@ -139,7 +141,7 @@ func (m *Model) renderHelpLine(width int) string {
 	case tabSettings:
 		h = m.settings.help()
 	}
-	global := st.Dim.Render("  ·  ") + st.Key.Render("[ ]") + st.Help.Render(" tabs") +
+	global := st.Dim.Render("  ·  ") + st.Key.Render("F1-F10") + st.Help.Render(" tabs") +
 		st.Dim.Render("  ·  ") + st.Key.Render("c") + st.Help.Render(" connect") +
 		st.Dim.Render("  ·  ") + st.Key.Render("q") + st.Help.Render(" quit")
 	return truncate(st.Help.Render(h)+global, width)

@@ -89,6 +89,10 @@ func TestCaptureFrames(t *testing.T) {
 		})
 	}
 
+	// Summary: build the network profile from the demo agent
+	m.summary.targetHost = "demo"
+	m, _ = updateModel(m, profileMsg{profile: snmp.BuildProfile(src, info)})
+
 	// Interfaces: load the if-table and run a few poll rounds so rates appear
 	_ = m.ifaces.onConnect(m)
 	ift, _ := src.Walk("1.3.6.1.2.1.2")
@@ -149,6 +153,7 @@ func TestCaptureFrames(t *testing.T) {
 		tabBrowser:    "walk complete — 214 objects under 1.3.6.1.2.1 · polling every 3s",
 		tabGraph:      "graphing lmTempSensorsValue.1 · 90 samples · line chart",
 		tabWatch:      "3 objects watched · saved to ~/.config/snmpdigger/config.yaml",
+		tabSummary:    "network profile ready · demo agent",
 		tabTraps:      "listening for SNMP traps on udp/162 · 4 received",
 		tabDiscovery:  "ready — pick CIDR / ASN / LOCAL and press Start scan",
 		tabCatalog:    "catalog: 31 modules · 340 objects · offline reference",
@@ -165,6 +170,7 @@ func TestCaptureFrames(t *testing.T) {
 		{"SNMPDIGGER_SHOT_DISCOVERY", tabDiscovery},
 		{"SNMPDIGGER_SHOT_INTERFACES", tabInterfaces},
 		{"SNMPDIGGER_SHOT_WATCH", tabWatch},
+		{"SNMPDIGGER_SHOT_SUMMARY", tabSummary},
 		{"SNMPDIGGER_SHOT_TRAPS", tabTraps},
 	}
 	for _, s := range shots {

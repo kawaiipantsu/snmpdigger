@@ -50,7 +50,7 @@ func ResolveASN(ctx context.Context, asn string) (ASNInfo, error) {
 			} `json:"prefixes"`
 		} `json:"data"`
 	}
-	if err := ripestat(ctx, "announced-prefixes", num, &pfx); err != nil {
+	if err := ripestat(ctx, "announced-prefixes", "AS"+num, &pfx); err != nil {
 		return ASNInfo{}, err
 	}
 	seen := map[string]struct{}{}
@@ -73,7 +73,7 @@ func ResolveASN(ctx context.Context, asn string) (ASNInfo, error) {
 			Holder string `json:"holder"`
 		} `json:"data"`
 	}
-	if err := ripestat(ctx, "as-overview", num, &meta); err == nil {
+	if err := ripestat(ctx, "as-overview", "AS"+num, &meta); err == nil {
 		info.Holder = meta.Data.Holder
 	}
 
@@ -84,7 +84,7 @@ func ResolveASN(ctx context.Context, asn string) (ASNInfo, error) {
 }
 
 func ripestat(ctx context.Context, endpoint, resource string, out any) error {
-	url := fmt.Sprintf("https://stat.ripe.net/data/%s/data.json?resource=AS%s&sourceapp=snmpdigger", endpoint, resource)
+	url := fmt.Sprintf("https://stat.ripe.net/data/%s/data.json?resource=%s&sourceapp=snmpdigger", endpoint, resource)
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(cctx, http.MethodGet, url, nil)

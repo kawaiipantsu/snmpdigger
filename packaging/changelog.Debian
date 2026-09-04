@@ -1,3 +1,16 @@
+snmpdigger (0.2.3-1) unstable; urgency=medium
+
+  * New Summary tab: assembles a full network profile of the connected
+    target - identity + ENTITY-MIB hardware, IP addresses, interface
+    roll-up, routing table, ARP/LLDP neighbours (with MAC-OUI vendor
+    guesses), listening ports / processes / storage, and reverse DNS +
+    ASN/org + RIR + MaxMind GeoLite location (RIPEstat) for public
+    targets. Exports the report to Markdown.
+  * Tab switching moved to F1-F10 (works while typing in a text field);
+    digit keys 1-9/0 and [ ] still work. Tab labels show F-numbers.
+
+ -- kawaiipantsu <12233528+kawaiipantsu@users.noreply.github.com>  Fri, 04 Sep 2026 11:20:00 +0000
+
 snmpdigger (0.2.2-1) unstable; urgency=medium
 
   * New Traps tab: a built-in SNMP trap / inform listener (v1 / v2c / v3),

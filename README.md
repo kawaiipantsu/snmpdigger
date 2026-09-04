@@ -56,10 +56,11 @@ range and it sweeps the network for anything that answers SNMP.
   <img src="assets/screen-catalog.png" width="49%" alt="Catalog tab — offline MIB module and object reference">
 </p>
 <p align="center">
+  <img src="assets/screen-summary.png" width="49%" alt="Summary tab — assembled network profile of the target">
   <img src="assets/screen-discovery.png" width="49%" alt="Discovery tab — CIDR / ASN / local sweep for SNMP agents">
-  <img src="assets/screen-traps.png" width="49%" alt="Traps tab — live SNMP trap / inform listener">
 </p>
 <p align="center">
+  <img src="assets/screen-traps.png" width="49%" alt="Traps tab — live SNMP trap / inform listener">
   <img src="assets/screen-watch.png" width="49%" alt="Watch tab — pinned objects with live values and sparklines">
 </p>
 
@@ -67,8 +68,9 @@ range and it sweeps the network for anything that answers SNMP.
 
 | | |
 |---|---|
-| **Boot** | no args &rarr; alt-screen TUI, opening on the Discovery tab — the connection dialog is never forced. `c` opens it (pre-filled from a discovered row); `--demo` swaps in a synthetic live agent, no device required. |
+| **Boot** | no args &rarr; alt-screen TUI, opening on the Discovery tab — the connection dialog is never forced. `c` opens it (pre-filled from a discovered row). Tabs switch with **F1–F10** (works even while typing in a field) or `[` / `]`. `--demo` swaps in a synthetic live agent, no device required. |
 | **System** | pulls the system group and *fingerprints* the host: vendor from the `sysObjectID` enterprise number, best-effort role (Cisco / MikroTik / Juniper / Fortinet / printer / UPS / NAS / hypervisor / Linux / Windows / …), decoded `sysServices` OSI layers, uptime, `sysContact` / `sysLocation` / admin — plus an analysis panel flagging missing contacts and fingerprint leaks. Live-updates. |
+| **Summary** | takes the connected target and assembles a **complete network profile** in one scrollable report: identity + hardware (ENTITY-MIB model / serial / firmware), the device's own IP addresses, interface roll-up, the **routing table** (default gateway, protocol, direct/indirect), **ARP / LLDP neighbours** (with MAC-OUI vendor guesses), listening TCP ports / process & user counts / storage, and — for a publicly-routed target — **reverse DNS, the announcing ASN + org, the RIR, and MaxMind GeoLite city / country / lat-lon** via RIPEstat. `r` rebuild &middot; `e` export the whole report to Markdown. |
 | **Interfaces** | a live **IF-MIB dashboard** — every port with `ifName` / alias, admin+oper status, speed, **in/out bit/s** and **% utilisation** (computed from HC counters), plus error and discard deltas; the selected port gets in/out sparklines. `/` filter &middot; `f` up-only &middot; `s` sort (index / name / utilisation / errors) &middot; `g` graph it &middot; `space` pin it to Watch &middot; `e` export the table to CSV. |
 | **Browser** | walks the MIB/OID tree on connect; table of **numeric OID + human name + type + value + age**, polled every 1–5 s. `/` fuzzy search &middot; `f` filter by type &middot; `s` sort &middot; `enter` drill &middot; `backspace` up &middot; `g` graph &middot; `space` watch &middot; `e` export. |
 | **Graph** | pick any numeric OID, watch it live. Chart types: **line** (braille), **bars**, **sparkline**, **gauge**, huge **big-number**, **heatmap**. `t` cycles type &middot; `d` toggles raw vs per-second rate for counters &middot; `o` opens a fuzzy object picker. |

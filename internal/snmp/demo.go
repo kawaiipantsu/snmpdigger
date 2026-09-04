@@ -125,6 +125,72 @@ func (d *Demo) build() {
 	d.add("1.3.6.1.2.1.11.2.0", KindCounter, d.counter("snmpOutPkts", 3.2, 1.5))
 	d.add("1.3.6.1.2.1.11.15.0", KindCounter, d.counter("snmpInGetRequests", 2.1, 1.5))
 
+	// --- ip: forwarding, addresses, routes, ARP (for the Summary tab) ---
+	d.add("1.3.6.1.2.1.4.1.0", KindInteger, constNum(1)) // ipForwarding = forwarding
+	d.add("1.3.6.1.2.1.6.9.0", KindGauge, d.wobble("tcpEstab", 34, 8, 120))
+	ipAddrs := []struct {
+		ip, mask string
+		idx      int
+	}{
+		{"127.0.0.1", "255.0.0.0", 1},
+		{"10.0.1.9", "255.255.255.0", 2},
+		{"192.0.2.9", "255.255.255.0", 3},
+	}
+	for _, a := range ipAddrs {
+		d.add("1.3.6.1.2.1.4.20.1.1."+a.ip, KindIPAddress, constStr(a.ip))
+		d.add("1.3.6.1.2.1.4.20.1.2."+a.ip, KindInteger, constNum(float64(a.idx)))
+		d.add("1.3.6.1.2.1.4.20.1.3."+a.ip, KindIPAddress, constStr(a.mask))
+	}
+	routes := []struct {
+		dest, mask, nh  string
+		idx, typ, proto int
+	}{
+		{"0.0.0.0", "0.0.0.0", "10.0.1.1", 2, 4, 2},
+		{"10.0.1.0", "255.255.255.0", "0.0.0.0", 2, 3, 2},
+		{"192.0.2.0", "255.255.255.0", "0.0.0.0", 3, 3, 2},
+		{"172.16.0.0", "255.240.0.0", "10.0.1.254", 2, 4, 13},
+	}
+	for _, r := range routes {
+		k := "1.3.6.1.2.1.4.21.1.%d." + r.dest
+		d.add(fmt.Sprintf(k, 1), KindIPAddress, constStr(r.dest))
+		d.add(fmt.Sprintf(k, 2), KindInteger, constNum(float64(r.idx)))
+		d.add(fmt.Sprintf(k, 7), KindIPAddress, constStr(r.nh))
+		d.add(fmt.Sprintf(k, 8), KindInteger, constNum(float64(r.typ)))
+		d.add(fmt.Sprintf(k, 9), KindInteger, constNum(float64(r.proto)))
+		d.add(fmt.Sprintf(k, 11), KindIPAddress, constStr(r.mask))
+	}
+	arps := []struct {
+		ifidx   int
+		ip, mac string
+	}{
+		{2, "10.0.1.1", "52:54:00:a1:b2:01"},
+		{2, "10.0.1.20", "b8:27:eb:1a:2b:3c"},
+		{3, "192.0.2.1", "00:0c:29:44:55:66"},
+	}
+	for _, a := range arps {
+		base := fmt.Sprintf("1.3.6.1.2.1.4.22.1.%%d.%d.%s", a.ifidx, a.ip)
+		d.add(fmt.Sprintf(base, 1), KindInteger, constNum(float64(a.ifidx)))
+		d.add(fmt.Sprintf(base, 2), KindString, constStr(a.mac))
+		d.add(fmt.Sprintf(base, 3), KindIPAddress, constStr(a.ip))
+		d.add(fmt.Sprintf(base, 4), KindInteger, constNum(3))
+	}
+	// hrStorage
+	stor := []struct {
+		descr      string
+		size, used int64
+	}{
+		{"Physical memory", 16_384_000, 6_120_000},
+		{"/ (root)", 52_428_800, 18_903_000},
+		{"/var", 20_971_520, 9_437_000},
+	}
+	for i, s := range stor {
+		b := fmt.Sprintf("1.3.6.1.2.1.25.2.3.1.%%d.%d", i+1)
+		d.add(fmt.Sprintf(b, 3), KindString, constStr(s.descr))
+		d.add(fmt.Sprintf(b, 4), KindInteger, constNum(1024))
+		d.add(fmt.Sprintf(b, 5), KindInteger, constNum(float64(s.size)))
+		d.add(fmt.Sprintf(b, 6), KindInteger, constNum(float64(s.used)))
+	}
+
 	for i := range d.nodes {
 		d.index[d.nodes[i].oid] = &d.nodes[i]
 	}

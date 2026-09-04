@@ -87,10 +87,15 @@ func TestKeyRouting(t *testing.T) {
 		}
 	}
 
-	m = feed(t, m, key("4")) // Browser is the 4th tab
+	m = feed(t, m, key("5")) // Browser is the 5th tab
 	if m.activeTab != tabBrowser {
 		t.Fatalf("digit key did not switch to Browser (got %v)", m.activeTab)
 	}
+	m = feed(t, m, tea.KeyMsg{Type: tea.KeyF3}) // Summary is F3
+	if m.activeTab != tabSummary {
+		t.Fatalf("F3 did not switch to Summary (got %v)", m.activeTab)
+	}
+	m = feed(t, m, key("5"))
 	m = feed(t, m, key("]"))
 	if m.activeTab != tabGraph {
 		t.Fatalf("] did not advance to Graph (got %v)", m.activeTab)

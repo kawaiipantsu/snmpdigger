@@ -56,6 +56,21 @@ func exportCSV(kind string, header []string, rows [][]string) (string, error) {
 	return path, nil
 }
 
+// exportText writes a free-form text/markdown document to
+// <exports>/<kind>-<timestamp>.md and returns the path.
+func exportText(kind, content string) (string, error) {
+	dir, err := exportDir()
+	if err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("%s-%s.md", kind, time.Now().Format("20060102-150405"))
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
 // oneLineText collapses whitespace/newlines for single-line output.
 func oneLineText(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")

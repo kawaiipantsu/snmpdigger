@@ -184,3 +184,53 @@ func TestLocalScanTargetsValid(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildProfileDemo(t *testing.T) {
+	d := NewDemo()
+	sys, err := Discover(d)
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	p := BuildProfile(d, sys)
+	if p.Name == "" {
+		t.Error("profile missing sysName")
+	}
+	if !p.IPForwarding {
+		t.Error("demo sets ipForwarding=1")
+	}
+	if len(p.Addrs) != 3 {
+		t.Errorf("want 3 ipAddr rows, got %d: %+v", len(p.Addrs), p.Addrs)
+	}
+	if len(p.Routes) < 3 || p.DefaultGW != "10.0.1.1" {
+		t.Errorf("routes=%d defaultGW=%q", len(p.Routes), p.DefaultGW)
+	}
+	if p.IfTotal != 4 {
+		t.Errorf("want 4 interfaces, got %d", p.IfTotal)
+	}
+	var rpi bool
+	for _, a := range p.ARP {
+		if a.Vendor == "Raspberry Pi" {
+			rpi = true
+		}
+	}
+	if !rpi {
+		t.Errorf("expected an OUI-resolved ARP vendor, got %+v", p.ARP)
+	}
+	if len(p.Storage) != 3 {
+		t.Errorf("want 3 storage rows, got %d", len(p.Storage))
+	}
+}
+
+func TestParseTable(t *testing.T) {
+	vs := []Var{
+		{OID: "1.3.6.1.2.1.4.20.1.1.10.0.0.1", Str: "10.0.0.1", Kind: KindIPAddress},
+		{OID: "1.3.6.1.2.1.4.20.1.2.10.0.0.1", Num: 2, Kind: KindInteger},
+		{OID: "1.3.6.1.2.1.4.20.1.3.10.0.0.1", Str: "255.255.255.0", Kind: KindIPAddress},
+		{OID: "1.3.6.1.2.1.99.0.0", Str: "ignore me"},
+	}
+	tbl := parseTable(vs, "1.3.6.1.2.1.4.20.1")
+	row := tbl["10.0.0.1"]
+	if row == nil || row["1"].Str != "10.0.0.1" || row["2"].Num != 2 || row["3"].Str != "255.255.255.0" {
+		t.Fatalf("parseTable = %+v", tbl)
+	}
+}

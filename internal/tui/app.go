@@ -1,6 +1,6 @@
 // Package tui implements the snmpdigger terminal UI: a square logo, an
-// extended-width connection header, a tab bar (Discovery / System / Interfaces /
-// Browser / Graph / Watch / Catalog / Settings), a live content area and a
+// extended-width connection header, a tab bar (Discovery / System / Summary / Interfaces /
+// Browser / Graph / Watch / Traps / Catalog / Settings), a live content area
 // one-line status footer.
 package tui
 
@@ -22,6 +22,7 @@ type tabID int
 const (
 	tabDiscovery tabID = iota
 	tabSystem
+	tabSummary
 	tabInterfaces
 	tabBrowser
 	tabGraph
@@ -31,7 +32,7 @@ const (
 	tabSettings
 )
 
-var tabNames = []string{"Discovery", "System", "Interfaces", "Browser", "Graph", "Watch", "Traps", "Catalog", "Settings"}
+var tabNames = []string{"Discovery", "System", "Summary", "Interfaces", "Browser", "Graph", "Watch", "Traps", "Catalog", "Settings"}
 
 // Options configures a TUI run.
 type Options struct {
@@ -72,6 +73,7 @@ type Model struct {
 	connect     connectModel
 
 	system    systemView
+	summary   summaryView
 	ifaces    interfacesView
 	browser   browserView
 	graph     graphView
@@ -104,6 +106,7 @@ func newModel(cfg *config.Config, opts Options) *Model {
 		st:         st,
 		activeTab:  tabDiscovery,
 		connect:    newConnectModel(st, cfg.Last),
+		summary:    newSummaryView(),
 		ifaces:     newInterfacesView(st),
 		browser:    newBrowserView(st),
 		graph:      newGraphView(st, cfg.UI.GraphHistory),
@@ -162,6 +165,7 @@ func (m *Model) reschedulePoll() tea.Cmd { return nil }
 func (m *Model) applyTheme() {
 	m.st = NewStyles(ThemeByName(m.cfg.UI.Theme))
 	m.spin.Style = lipgloss.NewStyle().Foreground(m.st.T.Accent)
+	m.summary.setTheme(m.st)
 	m.ifaces.setTheme(m.st)
 	m.browser.setTheme(m.st)
 	m.graph.setTheme(m.st)
@@ -226,7 +230,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, status("Identify failed: "+msg.err.Error(), stBad, false)
 		}
 		m.sys = msg.info
-		return m, status("Identified: "+dash(m.sys.Role), stGood, false)
+		return m, tea.Batch(status("Identified: "+dash(m.sys.Role), stGood, false), m.summary.onConnected(m))
 
 	case walkResultMsg:
 		cmds := []tea.Cmd{
@@ -256,6 +260,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case trapMsg:
 		return m, m.traps.update(m, msg)
 
+	case profileMsg, osintMsg:
+		return m, m.summary.update(m, msg)
+
 	case openConnectMsg:
 		m.connect = newConnectModel(m.st, mergeConnection(m.cfg.Last, msg.conn))
 		m.showConnect = true
@@ -276,6 +283,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) onKey(msg tea.KeyMsg) tea.Cmd {
 	if msg.String() == "ctrl+c" {
 		return tea.Quit
+	}
+
+	// Function keys switch tabs from anywhere - including while typing in a
+	// text field - so they are the reliable way to move around.
+	if n, ok := fKeyNum(msg.String()); ok && !m.showConnect {
+		if n >= 1 && n <= len(tabNames) {
+			m.activeTab = tabID(n - 1)
+			return m.onTabSwitch()
+		}
+		return nil
 	}
 
 	if m.showConnect {
@@ -301,7 +318,7 @@ func (m *Model) onKey(msg tea.KeyMsg) tea.Cmd {
 			connectCmd(m.cfg, intent.conn, false))
 	}
 
-	// [ and ] always switch tabs - a guaranteed escape from any view, even
+	// [ and ] always cycle tabs - a guaranteed escape from any view, even
 	// while a text field is focused (they're never meaningful field input).
 	switch msg.String() {
 	case "]", "shift+right", "ctrl+right":
@@ -320,9 +337,14 @@ func (m *Model) onKey(msg tea.KeyMsg) tea.Cmd {
 			m.connect = newConnectModel(m.st, m.cfg.Last)
 			m.showConnect = true
 			return status("Enter the SNMP connection details", stInfo, false)
-		case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-			if n := tabID(msg.String()[0] - '1'); int(n) < len(tabNames) {
-				m.activeTab = n
+		case "1", "2", "3", "4", "5", "6", "7", "8", "9", "0":
+			d := msg.String()[0]
+			n := int(d - '1')
+			if d == '0' {
+				n = 9
+			}
+			if n >= 0 && n < len(tabNames) {
+				m.activeTab = tabID(n)
 				return m.onTabSwitch()
 			}
 		}
@@ -370,6 +392,8 @@ func (m *Model) updateActive(msg tea.Msg) tea.Cmd {
 	switch m.activeTab {
 	case tabSystem:
 		return m.system.update(m, msg)
+	case tabSummary:
+		return m.summary.update(m, msg)
 	case tabInterfaces:
 		return m.ifaces.update(m, msg)
 	case tabBrowser:
@@ -474,6 +498,8 @@ func (m *Model) activeView() string {
 	switch m.activeTab {
 	case tabSystem:
 		return m.system.view(m)
+	case tabSummary:
+		return m.summary.view(m)
 	case tabInterfaces:
 		return m.ifaces.view(m)
 	case tabBrowser:
@@ -509,6 +535,24 @@ func fitBlock(s string, w, h int) string {
 		lines = append(lines, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func fKeyNum(s string) (int, bool) {
+	if len(s) < 2 || s[0] != 'f' {
+		return 0, false
+	}
+	switch s {
+	case "f10":
+		return 10, true
+	case "f11":
+		return 11, true
+	case "f12":
+		return 12, true
+	}
+	if len(s) == 2 && s[1] >= '1' && s[1] <= '9' {
+		return int(s[1] - '0'), true
+	}
+	return 0, false
 }
 
 func dash(s string) string {
