@@ -135,9 +135,14 @@ func (d *Demo) counter(seed string, ratePerSec, jitter float64) func(*Demo, time
 	phase := seedFloat(seed)
 	return func(_ *Demo, t time.Time) (float64, string) {
 		elapsed := t.Sub(d.start).Seconds()
-		wave := 1 + jitter*0.4*math.Sin(elapsed/23+phase*6.28)
-		v := ratePerSec * elapsed * wave
-		return math.Mod(math.Floor(v), 18_446_744_073_709_551_615), ""
+		// A strictly increasing base plus a bounded ripple. The ripple's slope
+		// (|d/dt| = ratePerSec * 2.5/23 ≈ 0.11*ratePerSec) never exceeds the
+		// base slope, so the counter is monotonic between samples - as a real
+		// SNMP Counter32/64 must be until it wraps. (jitter is retained in the
+		// signature for call-site readability but not used in this model.)
+		ripple := ratePerSec * 2.5 * (1 + math.Sin(elapsed/23+phase*6.28))
+		v := ratePerSec*elapsed + ripple
+		return math.Mod(math.Floor(v), 1.8446744073709552e19), ""
 	}
 }
 
