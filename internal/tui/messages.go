@@ -48,6 +48,10 @@ type pollResultMsg struct {
 type tickMsg time.Time
 type clockMsg time.Time
 
+// openConnectMsg asks the root to open the connection dialog pre-filled with a
+// known-partial profile (e.g. a row picked on the Discovery tab).
+type openConnectMsg struct{ conn config.Connection }
+
 type statusMsg struct {
 	text  string
 	level statusLevel

@@ -75,9 +75,9 @@ func (v *systemView) view(m *Model) string {
 	}
 	s := m.sys
 
-	outerW := m.cw - 1
-	if outerW > 108 {
-		outerW = 108 // keep the column readable on very wide terminals
+	outerW := m.cw - 2
+	if outerW > 82 {
+		outerW = 82 // panels stay a readable column width, not the full screen
 	}
 	innerW := outerW - 4 // minus border (2) and padding (2)
 	valW := innerW - 15

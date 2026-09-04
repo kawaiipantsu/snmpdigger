@@ -24,11 +24,13 @@
 Run `snmpdigger` with no arguments and it boots straight into a full-screen TUI:
 a square terminal-window logo top-left, an extended-width header that keeps the
 live connection string in view, a tab bar, and a one-line footer with a spinner,
-progress bars and a ticking clock. A connection dialog drops in immediately —
-host, port, **v1 / v2c / v3**, community string or the whole v3
-user / security-level / auth / priv credential set — or hit **Demo mode** and the
-app runs a synthetic agent so you can wander the entire interface with no device
-on the wire.
+progress bars and a ticking clock. It opens on the **Discovery** tab — nothing is
+forced, so you can scan a range or browse the offline MIB catalog before you
+connect to anything. Press `c` (or pick a discovered host) for the connection
+dialog — host, port, **v1 / v2c / v3**, community string or the whole v3
+user / security-level / auth / priv credential set — or run with `--demo` and the
+app talks to a synthetic agent so you can wander the entire interface with no
+device on the wire.
 
 From there: it **walks** the MIB tree and lets you browse every object by
 numeric OID *and* human name, live-polling values every 1–5 seconds. It
@@ -49,18 +51,22 @@ range and it sweeps the network for anything that answers SNMP.
   <img src="assets/screen-browser.png" width="49%" alt="Browser tab — walking the MIB tree, live values">
   <img src="assets/screen-graph.png" width="49%" alt="Graph tab — live braille line chart of a counter">
 </p>
+<p align="center">
+  <img src="assets/screen-catalog.png" width="49%" alt="Catalog tab — offline MIB module and object reference">
+  <img src="assets/screen-discovery.png" width="49%" alt="Discovery tab — CIDR sweep for SNMP agents">
+</p>
 
 ## What's in the box
 
 | | |
 |---|---|
-| **Boot** | no args &rarr; alt-screen TUI &rarr; connection dialog. `--demo` swaps in a synthetic live agent — no device required. |
+| **Boot** | no args &rarr; alt-screen TUI, opening on the Discovery tab — the connection dialog is never forced. `c` opens it (pre-filled from a discovered row); `--demo` swaps in a synthetic live agent, no device required. |
 | **System** | pulls the system group and *fingerprints* the host: vendor from the `sysObjectID` enterprise number, best-effort role (Cisco / MikroTik / Juniper / Fortinet / printer / UPS / NAS / hypervisor / Linux / Windows / …), decoded `sysServices` OSI layers, uptime, `sysContact` / `sysLocation` / admin — plus an analysis panel flagging missing contacts and fingerprint leaks. Live-updates. |
 | **Browser** | walks the MIB/OID tree on connect; table of **numeric OID + human name + type + value + age**, polled every 1–5 s. `/` fuzzy search &middot; `f` filter by type (counter / gauge / string / …) &middot; `s` `S` sort + direction &middot; `enter` drill into a subtree &middot; `backspace` up &middot; `g` throw the selected object at the Graph tab. |
 | **Graph** | pick any numeric OID, watch it live. Chart types: **line** (braille), **bars**, **sparkline**, **gauge**, huge **big-number**, **heatmap**. `t` cycles type &middot; `d` toggles raw vs per-second rate for counters &middot; `o` opens a fuzzy object picker. |
-| **Discovery** | feed it an IP **CIDR range**; it sweeps the range for SNMP agents, probing multiple community strings, and lists what answered — IP, device, version, uptime, `sysName`, `sysDescr`. `enter` on a row connects. Head-less too: `snmpdigger discover 192.168.1.0/24`. |
+| **Discovery** | the default landing tab. Feed it an IP **CIDR range**; it sweeps the range for SNMP agents, probing multiple community strings, and lists what answered — IP, device, version, uptime, `sysName`, `sysDescr`. `enter` on a row opens the connection dialog **pre-filled** with what the scan learned, so you just add credentials and connect. Head-less too: `snmpdigger discover 192.168.1.0/24`. |
 | **Catalog** | an offline reference of known MIB modules and their notable objects — the full IETF/standard set (SNMPv2-MIB, IF-MIB, IP/TCP/UDP-MIB, HOST-RESOURCES-MIB, ENTITY-MIB, BRIDGE/Q-BRIDGE, LLDP, UPS-MIB, Printer-MIB…) plus the big firewall and network vendors (Cisco, Juniper, MikroTik, Fortinet, Palo Alto, Check Point, SonicWall, Sophos, WatchGuard, Arista, HPE/Aruba, Huawei, Nokia, Extreme). Browse by vendor, search across everything, `enter` to walk that subtree on the live device or `g` to graph it. Fetch additional vendor MIBs on demand into `~/.config/snmpdigger/mibs`. |
-| **Settings** | poll interval, timeouts, retries, GETBULK tuning, graph history depth, theme (`thugs` / `matrix` / `mono`), default walk scope, secret masking. Persisted to `~/.config/snmpdigger/config.yaml` (XDG-aware). |
+| **Settings** | poll interval, timeouts, retries, GETBULK tuning, graph history depth, theme (`thugs` light-grey/cyan/dark · `ember` · `matrix` · `mono`), default walk scope, secret masking. Persisted to `~/.config/snmpdigger/config.yaml` (XDG-aware). |
 | **CLI** | `discover` &middot; `walk` &middot; `get` &middot; `identify` &middot; `config path` &middot; `version` — the TUI's engine without the screen. Shared flags: `--community`, `--version v1\|v2c\|v3`, `--port`, `--demo`, and the v3 set `--user --level --auth-proto --auth-pass --priv-proto --priv-pass --context`. |
 | **Under it** | **Go 1.27**, `CGO_ENABLED=0`, one static binary. TUI on [Bubble Tea](https://github.com/charmbracelet/bubbletea) / Bubbles / Lipgloss; SNMP via [gosnmp](https://github.com/gosnmp/gosnmp). Zero runtime deps — net-snmp's `snmptranslate` is *optional* and only used to enrich MIB names when present. |
 

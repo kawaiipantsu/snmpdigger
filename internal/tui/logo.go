@@ -6,24 +6,25 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// The header logo is a self-contained 6-row x 10-col "terminal window" emblem
-// (concept 4 from the brand sheet): three traffic-light dots, the SNMP / DIGGER
-// wordmark and a shell prompt. It draws its own chrome so it does not depend on
-// a lipgloss border.
+// The header logo is a small "terminal window" emblem: a row of prompt dots,
+// the SNMP / DIGGER wordmark and a shell prompt. The chrome is a real lipgloss
+// border so it always stays aligned regardless of glyph widths in the terminal.
 func renderLogo(s Styles) string {
 	accent := lipgloss.NewStyle().Foreground(s.T.Accent).Bold(true)
 	white := lipgloss.NewStyle().Foreground(s.T.Fg).Bold(true)
-	frame := lipgloss.NewStyle().Foreground(s.T.Border)
 
-	rows := []string{
-		frame.Render("╔════════╗"),
-		frame.Render("║") + accent.Render("● ● ●") + frame.Render("   ║"),
-		frame.Render("║ ") + white.Render("SNMP") + frame.Render("   ║"),
-		frame.Render("║ ") + accent.Render("DIGGER") + frame.Render(" ║"),
-		frame.Render("║ ") + accent.Render("▶") + s.Dim.Render(" dig_") + frame.Render("  ║"),
-		frame.Render("╚════════╝"),
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, rows...)
+	inner := lipgloss.JoinVertical(lipgloss.Left,
+		accent.Render("o o o"),
+		white.Render("SNMP"),
+		accent.Render("DIGGER"),
+		lipgloss.NewStyle().Foreground(s.T.Faint).Render("> dig_"),
+	)
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(s.T.Accent).
+		Padding(0, 1).
+		Width(8).
+		Render(inner)
 }
 
 func logoDims(s Styles) (w, h int) {

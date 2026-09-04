@@ -26,7 +26,9 @@ import (
 func TestCaptureFrames(t *testing.T) {
 	if os.Getenv("SNMPDIGGER_SHOT_BROWSER") == "" &&
 		os.Getenv("SNMPDIGGER_SHOT_GRAPH") == "" &&
-		os.Getenv("SNMPDIGGER_SHOT_SYSTEM") == "" {
+		os.Getenv("SNMPDIGGER_SHOT_SYSTEM") == "" &&
+		os.Getenv("SNMPDIGGER_SHOT_CATALOG") == "" &&
+		os.Getenv("SNMPDIGGER_SHOT_DISCOVERY") == "" {
 		t.Skip("set SNMPDIGGER_SHOT_* to capture frames")
 	}
 
@@ -83,9 +85,27 @@ func TestCaptureFrames(t *testing.T) {
 		})
 	}
 
-	m.statusText = "walk complete — 214 objects under 1.3.6.1.2.1 · polling every 3s"
+	// scroll the Catalog down so a mid-list module is selected (exercises the
+	// left-pane scroll offset that used to overflow)
+	m.activeTab = tabCatalog
+	for i := 0; i < 17; i++ {
+		m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	}
+	m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("l")}) // → object pane
+	for i := 0; i < 3; i++ {
+		m, _ = updateModel(m, tea.KeyMsg{Type: tea.KeyDown}) // move object cursor
+	}
+
 	m.statusLvl = stGood
 	m.now = time.Date(2026, 9, 4, 13, 37, 12, 0, time.Local)
+
+	statusFor := map[tabID]string{
+		tabSystem:    "identified forge.lab.thugs.red · Linux host / server · polling every 3s",
+		tabBrowser:   "walk complete — 214 objects under 1.3.6.1.2.1 · polling every 3s",
+		tabGraph:     "graphing lmTempSensorsValue.1 · 90 samples · line chart",
+		tabDiscovery: "ready — enter a CIDR range and press Start scan",
+		tabCatalog:   "catalog: 31 modules · 340 objects · offline reference",
+	}
 
 	shots := []struct {
 		env string
@@ -94,6 +114,8 @@ func TestCaptureFrames(t *testing.T) {
 		{"SNMPDIGGER_SHOT_BROWSER", tabBrowser},
 		{"SNMPDIGGER_SHOT_GRAPH", tabGraph},
 		{"SNMPDIGGER_SHOT_SYSTEM", tabSystem},
+		{"SNMPDIGGER_SHOT_CATALOG", tabCatalog},
+		{"SNMPDIGGER_SHOT_DISCOVERY", tabDiscovery},
 	}
 	for _, s := range shots {
 		path := os.Getenv(s.env)
@@ -101,6 +123,9 @@ func TestCaptureFrames(t *testing.T) {
 			continue
 		}
 		m.activeTab = s.tab
+		if txt, ok := statusFor[s.tab]; ok {
+			m.statusText = txt
+		}
 		frame := m.View()
 		if err := os.WriteFile(path, []byte(frame+"\n"), 0o644); err != nil {
 			t.Fatalf("write %s: %v", path, err)

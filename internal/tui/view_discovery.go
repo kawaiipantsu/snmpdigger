@@ -60,7 +60,7 @@ func (v *discoveryView) help() string {
 	if v.scanning {
 		return "esc cancel scan   ·   scanning…"
 	}
-	return "tab field · ←/→ version · enter start scan · ↑/↓ results · enter on row → connect"
+	return "tab/↑/↓ move · ←/→ version · enter: start scan — or, on a result row, open a pre-filled connect dialog · ctrl+r rescan"
 }
 
 func (v *discoveryView) pollOIDs(*Model) []string { return nil }
@@ -78,7 +78,11 @@ func (v *discoveryView) update(m *Model, msg tea.Msg) tea.Cmd {
 			v.scanning = false
 			v.found = msg.found
 			v.fillTable()
-			return status(fmt.Sprintf("Discovery complete — %d SNMP device(s) in %s",
+			if len(v.found) > 0 {
+				v.focus = 3 // jump to the results so enter = fast-connect
+				v.applyFocus()
+			}
+			return status(fmt.Sprintf("Discovery complete — %d SNMP device(s) in %s · enter on a row to connect",
 				len(v.found), time.Since(v.started).Round(time.Millisecond)), stGood, false)
 		}
 		return waitScan(v.ch)
@@ -92,42 +96,47 @@ func (v *discoveryView) update(m *Model, msg tea.Msg) tea.Cmd {
 			return nil
 		}
 		switch msg.String() {
-		case "tab", "down":
-			if v.focus < 3 {
-				v.focus++
+		case "tab":
+			v.focus = (v.focus + 1) % 4
+			v.applyFocus()
+			return nil
+		case "shift+tab":
+			v.focus = (v.focus + 3) % 4
+			v.applyFocus()
+			return nil
+		case "up", "down", "pgup", "pgdown":
+			if v.focus == 3 { // navigate the results table
+				var cmd tea.Cmd
+				v.tbl, cmd = v.tbl.Update(msg)
+				return cmd
+			}
+			if msg.String() == "up" {
+				v.focus = (v.focus + 3) % 4
 			} else {
-				v.focus = 0
+				v.focus = (v.focus + 1) % 4
 			}
 			v.applyFocus()
-		case "shift+tab", "up":
-			if v.focus > 0 {
-				v.focus--
-			}
-			v.applyFocus()
-			if v.focus < 0 {
-				v.focus = 0
-			}
+			return nil
 		case "left":
 			if v.focus == 2 {
 				v.ver.prev()
 			}
+			return nil
 		case "right":
 			if v.focus == 2 {
 				v.ver.next()
 			}
+			return nil
 		case "enter":
-			if v.focus == 3 || v.focus <= 1 {
-				return v.startScan(m)
+			if v.focus == 3 {
+				if conn, ok := v.connectTarget(); ok {
+					return func() tea.Msg { return openConnectMsg{conn: conn} }
+				}
+				return status("no discovered host selected", stWarn, false)
 			}
-			if v.focus == 2 {
-				return v.startScan(m)
-			}
+			return v.startScan(m)
 		case "ctrl+r":
 			return v.startScan(m)
-		}
-		// results navigation when nothing focused on inputs
-		if row := v.selectedRow(); row != "" {
-			// allow up/down to move table too
 		}
 		var cmd tea.Cmd
 		switch v.focus {
@@ -135,8 +144,6 @@ func (v *discoveryView) update(m *Model, msg tea.Msg) tea.Cmd {
 			v.cidr, cmd = v.cidr.Update(msg)
 		case 1:
 			v.comm, cmd = v.comm.Update(msg)
-		default:
-			v.tbl, cmd = v.tbl.Update(msg)
 		}
 		return cmd
 	}

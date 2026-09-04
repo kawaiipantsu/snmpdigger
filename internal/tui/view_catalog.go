@@ -38,6 +38,7 @@ type catalogView struct {
 	mods []mib.CatModule
 	sel  int // index into mods
 	top  int // left-pane scroll offset (module rows)
+	pane int // 0 = module list (left), 1 = object table (right)
 
 	tbl     table.Model
 	objRow  int
@@ -84,7 +85,7 @@ func (v *catalogView) help() string {
 	case catFetch:
 		return "type to filter · ↑/↓ move · enter download MIB · esc back"
 	default:
-		return "↑/↓ module · v vendor filter · / search · F fetch MIBs · enter → browse live · g → graph"
+		return "←/→ switch pane · ↑/↓ move · enter open/browse live · v/V vendor filter · / search · F fetch MIBs · g → graph"
 	}
 }
 
@@ -97,6 +98,17 @@ func (v *catalogView) pollOIDs(*Model) []string { return nil }
 func (v *catalogView) setTheme(st Styles) {
 	applyTableTheme(&v.tbl, st)
 	v.search.Prompt = st.Accent.Render("/ ")
+}
+
+// setPane switches the active pane and keeps the object table's key focus in
+// sync (bubbles/table only moves its cursor while focused).
+func (v *catalogView) setPane(p int) {
+	v.pane = p
+	if p == 1 {
+		v.tbl.Focus()
+	} else {
+		v.tbl.Blur()
+	}
 }
 
 func (v *catalogView) refreshVendor() {
@@ -220,32 +232,44 @@ func (v *catalogView) keyBrowse(m *Model, msg tea.KeyMsg) tea.Cmd {
 	case "v":
 		v.vfilt = (v.vfilt + 1) % len(v.vendors)
 		v.refreshVendor()
+		v.setPane(0)
 		return status("Catalog vendor: "+v.vendors[v.vfilt], stInfo, false)
 	case "V":
 		v.vfilt = (v.vfilt - 1 + len(v.vendors)) % len(v.vendors)
 		v.refreshVendor()
+		v.setPane(0)
 		return nil
-	case "up", "k":
-		if v.sel > 0 {
-			v.sel--
-			v.fillModuleTable()
+	case "left", "h":
+		v.setPane(0)
+		return nil
+	case "right", "l":
+		if len(v.mods) > 0 {
+			v.setPane(1)
 		}
 		return nil
-	case "down", "j":
-		if v.sel < len(v.mods)-1 {
-			v.sel++
-			v.fillModuleTable()
+	case "up", "k", "down", "j", "pgup", "pgdown":
+		if v.pane == 1 {
+			var cmd tea.Cmd
+			v.tbl, cmd = v.tbl.Update(msg)
+			return cmd
 		}
-		return nil
-	case "pgup":
-		v.sel = clampInt(v.sel-8, 0, maxInt(0, len(v.mods)-1))
-		v.fillModuleTable()
-		return nil
-	case "pgdown":
-		v.sel = clampInt(v.sel+8, 0, maxInt(0, len(v.mods)-1))
+		step := 1
+		if msg.String() == "pgup" || msg.String() == "pgdown" {
+			step = 8
+		}
+		if msg.String() == "up" || msg.String() == "k" || msg.String() == "pgup" {
+			step = -step
+		}
+		v.sel = clampInt(v.sel+step, 0, maxInt(0, len(v.mods)-1))
 		v.fillModuleTable()
 		return nil
 	case "enter":
+		if v.pane == 0 {
+			if len(v.mods) > 0 {
+				v.setPane(1)
+			}
+			return nil
+		}
 		return v.activateObject(m)
 	case "g":
 		if o, ok := v.selectedObject(); ok && m.connected {
@@ -255,9 +279,7 @@ func (v *catalogView) keyBrowse(m *Model, msg tea.KeyMsg) tea.Cmd {
 		}
 		return status("connect first to graph "+dashObj(v), stWarn, false)
 	}
-	var cmd tea.Cmd
-	v.tbl, cmd = v.tbl.Update(msg)
-	return cmd
+	return nil
 }
 
 func (v *catalogView) activateObject(m *Model) tea.Cmd {
@@ -363,47 +385,87 @@ func (v *catalogView) view(m *Model) string {
 		return v.viewFetch(m)
 	}
 
-	leftW := clampInt(m.cw/3, 24, 40)
+	h := m.ch
+	leftW := clampInt(m.cw/3, 26, 42)
 	rightW := m.cw - leftW - 3
 
-	left := v.renderModuleList(st, leftW, m.ch-2)
+	if v.pane == 1 {
+		v.tbl.Focus()
+	} else {
+		v.tbl.Blur()
+	}
+
+	left := lipgloss.NewStyle().Width(leftW).Height(h).Render(v.renderModuleList(st, leftW, h))
 
 	var right string
 	if v.sel >= 0 && v.sel < len(v.mods) {
 		mod := v.mods[v.sel]
+		const descH = 6 // fixed rows reserved for the description panel
 		v.tbl.SetWidth(rightW)
-		v.tbl.SetHeight(clampInt(m.ch-9, 3, 400))
+		v.tbl.SetHeight(clampInt(h-6-descH, 3, 400))
+		modTitle := st.PanelTitle
+		if v.pane == 0 {
+			modTitle = lipgloss.NewStyle().Foreground(st.T.Dim).Bold(true)
+		}
 		head := lipgloss.JoinVertical(lipgloss.Left,
-			st.PanelTitle.Render(mod.Module)+st.Dim.Render("   "+mod.Vendor),
-			st.Dim.Render("root ")+st.HeaderVal.Render(mod.Root)+st.Dim.Render("   objects ")+st.HeaderVal.Render(fmt.Sprintf("%d", len(mod.Objects))),
+			modTitle.Render(mod.Module)+st.Dim.Render("  "+mod.Vendor),
+			st.Dim.Render("root ")+st.HeaderVal.Render(mod.Root)+st.Dim.Render("  objects ")+st.HeaderVal.Render(fmt.Sprintf("%d", len(mod.Objects))),
 			st.Dim.Render(truncate(mod.Summary, rightW)),
 		)
-		desc := ""
-		if o, ok := v.selectedObject(); ok {
-			desc = st.Accent.Render(o.Name) + st.Dim.Render("  "+o.OID+"  ["+o.Type+", "+o.Access+"]") + "\n" +
-				lipgloss.NewStyle().Width(rightW).Render(o.Descr)
-		}
 		right = lipgloss.JoinVertical(lipgloss.Left,
-			head, "", v.tbl.View(), "",
-			st.Panel.Width(rightW).Render(desc))
+			head, "", v.tbl.View(), "", v.descPanel(st, rightW, descH))
 	} else {
 		right = centeredHint(m, "no modules for this vendor filter")
 	}
 
+	sep := lipgloss.NewStyle().Foreground(st.T.Faint).
+		Render(strings.TrimRight(strings.Repeat("│\n", h), "\n"))
+
 	body := lipgloss.JoinHorizontal(lipgloss.Top,
-		lipgloss.NewStyle().Width(leftW).Render(left),
-		st.Dim.Render(" │ "),
-		lipgloss.NewStyle().Width(rightW).Render(right),
+		left, " "+sep+" ",
+		lipgloss.NewStyle().Width(rightW).Height(h).Render(clip(right, 0, h)),
 	)
-	return body
+	return clip(body, 0, h)
+}
+
+// descPanel renders the selected object's description in a fixed-height box so
+// long text can never push the surrounding layout past the content area.
+func (v *catalogView) descPanel(st Styles, w, rows int) string {
+	inner := rows - 2
+	if inner < 1 {
+		inner = 1
+	}
+	o, ok := v.selectedObject()
+	var content string
+	if ok {
+		title := st.Accent.Render(o.Name) +
+			st.Dim.Render("  "+o.OID+"  ["+o.Type+", "+o.Access+"]")
+		bodyRows := inner - 1
+		if bodyRows < 1 {
+			bodyRows = 1
+		}
+		wrapped := lipgloss.NewStyle().Width(w - 4).Render(o.Descr)
+		content = title + "\n" + st.Dim.Render(clip(wrapped, 0, bodyRows))
+	} else {
+		content = st.Dim.Render("select an object for its description")
+	}
+	return st.Panel.Width(w - 2).Height(inner).Render(content)
 }
 
 func (v *catalogView) renderModuleList(st Styles, w, h int) string {
-	title := st.PanelTitle.Render("MIB CATALOG") + st.Dim.Render("  vendor: ") + st.HeaderVal.Render(v.vendors[v.vfilt])
-	if h < 4 {
-		h = 4
+	titleStyle := st.PanelTitle
+	if v.pane == 1 {
+		titleStyle = lipgloss.NewStyle().Foreground(st.T.Dim).Bold(true)
 	}
-	rowsAvail := h - 2
+	title := titleStyle.Render("MIB CATALOG") + st.Dim.Render("  vendor: ") + st.HeaderVal.Render(v.vendors[v.vfilt])
+	if h < 6 {
+		h = 6
+	}
+	// title (2) + trailing blank + counter (2) frame the scrollable rows
+	rowsAvail := h - 4
+	if rowsAvail < 1 {
+		rowsAvail = 1
+	}
 
 	// keep selection visible
 	if v.sel < v.top {
@@ -411,6 +473,9 @@ func (v *catalogView) renderModuleList(st Styles, w, h int) string {
 	}
 	if v.sel >= v.top+rowsAvail {
 		v.top = v.sel - rowsAvail + 1
+	}
+	if v.top < 0 {
+		v.top = 0
 	}
 
 	var b strings.Builder
@@ -427,11 +492,15 @@ func (v *catalogView) renderModuleList(st Styles, w, h int) string {
 				break
 			}
 		}
-		line := "  " + truncate(mod.Module, w-4)
-		if i == v.sel {
-			line = st.TableSel.Render(padRight(" "+truncate(mod.Module, w-4), w-1))
-		} else {
-			line = st.Dim.Render(line)
+		name := truncate(mod.Module, w-4)
+		var line string
+		switch {
+		case i == v.sel && v.pane == 0:
+			line = st.TableSel.Render(padRight("  "+name, w-1))
+		case i == v.sel:
+			line = lipgloss.NewStyle().Foreground(st.T.Accent).Render("▸ " + name)
+		default:
+			line = st.Dim.Render("  " + name)
 		}
 		b.WriteString(line + "\n")
 		printed++
@@ -442,17 +511,14 @@ func (v *catalogView) renderModuleList(st Styles, w, h int) string {
 
 func (v *catalogView) viewSearch(m *Model) string {
 	st := m.st
+	const descH = 6
 	v.tbl.SetWidth(m.cw - 2)
-	v.tbl.SetHeight(clampInt(m.ch-6, 3, 400))
+	v.tbl.SetHeight(clampInt(m.ch-5-descH, 3, 400))
 	head := st.PanelTitle.Render("CATALOG SEARCH") + "   " + v.search.View()
 	sub := st.Dim.Render(fmt.Sprintf("%d match(es) across %d modules", len(v.results), len(mib.Catalog())))
-	var desc string
-	if o, ok := v.selectedObject(); ok {
-		desc = st.Panel.Width(m.cw - 2).Render(
-			st.Accent.Render(o.Name) + st.Dim.Render("  "+o.OID) + "\n" +
-				lipgloss.NewStyle().Width(m.cw-6).Render(o.Descr))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, head, sub, "", v.tbl.View(), "", desc)
+	body := lipgloss.JoinVertical(lipgloss.Left,
+		head, sub, "", v.tbl.View(), "", v.descPanel(st, m.cw-2, descH))
+	return clip(body, 0, m.ch)
 }
 
 func (v *catalogView) viewFetch(m *Model) string {
@@ -483,9 +549,9 @@ func (v *catalogView) viewFetch(m *Model) string {
 			b.WriteString(mark + st.Dim.Render(line) + "\n")
 		}
 	}
-	note := st.Help.Render("raw MIB saved to " + v.cacheDir + "  (parsing not yet implemented)")
+	note := st.Help.Render(truncate("raw MIB saved to "+v.cacheDir+"  (parsing not yet implemented)", m.cw-1))
 	count := st.Dim.Render(fmt.Sprintf("%d/%d remote modules · %d cached", v.rcur+1, len(v.rfilt), len(v.cached)))
-	return lipgloss.JoinVertical(lipgloss.Left, head, count, "", b.String(), note)
+	return clip(lipgloss.JoinVertical(lipgloss.Left, head, count, "", b.String(), note), 0, m.ch)
 }
 
 func dashObj(v *catalogView) string {

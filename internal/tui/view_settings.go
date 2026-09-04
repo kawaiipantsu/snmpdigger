@@ -73,7 +73,7 @@ func (v *settingsView) adjust(m *Model, dir int) {
 	case 7:
 		c.UI.MaskSecrets = !c.UI.MaskSecrets
 	case 8:
-		c.UI.Theme = cycle([]string{"thugs", "matrix", "mono"}, c.UI.Theme, dir)
+		c.UI.Theme = cycle([]string{"thugs", "ember", "matrix", "mono"}, c.UI.Theme, dir)
 		m.applyTheme()
 	case 9:
 		c.UI.DefaultWalkScope = cycle([]string{"mib-2", "enterprises", "whole"}, c.UI.DefaultWalkScope, dir)
@@ -101,7 +101,7 @@ func (v *settingsView) view(m *Model) string {
 		{"Graph history", fmt.Sprintf("%d samples", c.UI.GraphHistory), "ring buffer per graphed object"},
 		{"Show numeric OID", onOff(c.UI.ShowNumericOID), "browser OID column"},
 		{"Mask secrets", onOff(c.UI.MaskSecrets), "hide community / passphrases in header"},
-		{"Theme", c.UI.Theme, "thugs · matrix · mono"},
+		{"Theme", c.UI.Theme, "thugs · ember · matrix · mono"},
 		{"Default walk scope", c.UI.DefaultWalkScope, "subtree walked on connect"},
 	}
 

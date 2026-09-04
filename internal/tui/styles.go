@@ -18,20 +18,28 @@ type Theme struct {
 }
 
 var themes = map[string]Theme{
+	// Default: dark ground, but bright light-grey text with a cyan accent and
+	// clearly visible borders - readable on any terminal.
 	"thugs": {
-		Name: "thugs", Fg: "#e6e6e6", Dim: "#8a8a8a", Faint: "#4a4a4a",
-		Accent: "#e2223b", Alt: "#ff5c5c", Good: "#35c98b", Warn: "#f2b134",
-		Bad: "#e2223b", Border: "#5a1620", Panel: "#1a0e10",
+		Name: "thugs", Fg: "#e8eef2", Dim: "#aab8c2", Faint: "#7c8b95",
+		Accent: "#38d6e6", Alt: "#8be9fd", Good: "#54e39a", Warn: "#f7bd45",
+		Bad: "#ff6b6b", Border: "#5f7d88", Panel: "#161d21",
+	},
+	// Warmer variant that keeps the THUGS(red) accent throughout the UI.
+	"ember": {
+		Name: "ember", Fg: "#f0e9e6", Dim: "#c2aaa5", Faint: "#8b7671",
+		Accent: "#ff5c5c", Alt: "#ff9d9d", Good: "#54e39a", Warn: "#f7bd45",
+		Bad: "#ff5c5c", Border: "#8a5a5a", Panel: "#1e1614",
 	},
 	"matrix": {
-		Name: "matrix", Fg: "#c8ffc8", Dim: "#4f9f4f", Faint: "#2b552b",
-		Accent: "#35c98b", Alt: "#7cff7c", Good: "#35c98b", Warn: "#f2b134",
-		Bad: "#ff5555", Border: "#1f4f1f", Panel: "#0b160b",
+		Name: "matrix", Fg: "#d6ffd6", Dim: "#7fce7f", Faint: "#4f9f4f",
+		Accent: "#54e39a", Alt: "#9cff9c", Good: "#54e39a", Warn: "#f7bd45",
+		Bad: "#ff6b6b", Border: "#3f8f3f", Panel: "#0d1a0d",
 	},
 	"mono": {
-		Name: "mono", Fg: "#e6e6e6", Dim: "#9a9a9a", Faint: "#565656",
-		Accent: "#ffffff", Alt: "#c0c0c0", Good: "#d0d0d0", Warn: "#a8a8a8",
-		Bad: "#ffffff", Border: "#3a3a3a", Panel: "#141414",
+		Name: "mono", Fg: "#f2f2f2", Dim: "#c0c0c0", Faint: "#8a8a8a",
+		Accent: "#ffffff", Alt: "#d8d8d8", Good: "#e8e8e8", Warn: "#c8c8c8",
+		Bad: "#ffffff", Border: "#9a9a9a", Panel: "#1a1a1a",
 	},
 }
 

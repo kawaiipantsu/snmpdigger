@@ -96,7 +96,7 @@ func newModel(cfg *config.Config, opts Options) *Model {
 		cfg:        cfg,
 		res:        mib.New(true),
 		st:         st,
-		activeTab:  tabSystem,
+		activeTab:  tabDiscovery,
 		connect:    newConnectModel(st, cfg.Last),
 		browser:    newBrowserView(st),
 		graph:      newGraphView(st, cfg.UI.GraphHistory),
@@ -112,10 +112,11 @@ func newModel(cfg *config.Config, opts Options) *Model {
 	if p, err := config.Path(); err == nil {
 		m.settings.path = p
 	}
+	// The connection dialog is never forced open on startup - the user can tab
+	// straight to Discovery / Catalog first and connect when ready.
+	m.showConnect = false
 	if opts.Demo || opts.AutoConnect != nil {
-		m.showConnect = false
-	} else {
-		m.showConnect = true
+		m.activeTab = tabSystem
 	}
 	return m
 }
@@ -132,7 +133,7 @@ func (m *Model) Init() tea.Cmd {
 		cmds = append(cmds, status("Connecting to "+m.autoConn.Host+"…", stInfo, true),
 			connectCmd(m.cfg, *m.autoConn, false))
 	default:
-		cmds = append(cmds, status("Enter SNMP connection details", stInfo, false))
+		cmds = append(cmds, status("Not connected — press c to connect, or scan from the Discovery tab", stInfo, false))
 	}
 	return tea.Batch(cmds...)
 }
@@ -233,6 +234,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scanUpdateMsg:
 		return m, m.discovery.update(m, msg)
 
+	case openConnectMsg:
+		m.connect = newConnectModel(m.st, mergeConnection(m.cfg.Last, msg.conn))
+		m.showConnect = true
+		return m, status("Fill in any missing credentials and press Connect", stInfo, false)
+
 	case tea.KeyMsg:
 		return m, m.onKey(msg)
 	}
@@ -280,11 +286,11 @@ func (m *Model) onKey(msg tea.KeyMsg) tea.Cmd {
 		case "c":
 			m.connect = newConnectModel(m.st, m.cfg.Last)
 			m.showConnect = true
-			return status("Enter SNMP connection details", stInfo, false)
-		case "]", "tab", "shift+right":
+			return status("Enter the SNMP connection details", stInfo, false)
+		case "]", "shift+right":
 			m.activeTab = (m.activeTab + 1) % tabID(len(tabNames))
 			return m.onTabSwitch()
-		case "[", "shift+tab", "shift+left":
+		case "[", "shift+left":
 			m.activeTab = (m.activeTab - 1 + tabID(len(tabNames))) % tabID(len(tabNames))
 			return m.onTabSwitch()
 		case "1", "2", "3", "4", "5", "6":
@@ -456,4 +462,24 @@ func dash(s string) string {
 		return "unknown"
 	}
 	return s
+}
+
+// mergeConnection overlays the fields Discovery actually knows (host, port,
+// version, community) onto the user's last profile, so the connect dialog opens
+// pre-filled with sane v3 defaults still in place.
+func mergeConnection(base, known config.Connection) config.Connection {
+	out := base
+	if known.Host != "" {
+		out.Host = known.Host
+	}
+	if known.Port != 0 {
+		out.Port = known.Port
+	}
+	if known.Version != "" {
+		out.Version = known.Version
+	}
+	if known.Community != "" {
+		out.Community = known.Community
+	}
+	return out
 }
