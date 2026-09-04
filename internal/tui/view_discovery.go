@@ -36,6 +36,7 @@ type discoveryView struct {
 	resolving bool
 	done      int
 	total     int
+	foundN    int
 	started   time.Time
 	found     []snmp.Found
 	tbl       table.Model
@@ -103,7 +104,11 @@ func (v *discoveryView) update(m *Model, msg tea.Msg) tea.Cmd {
 		return v.launch(m, msg.info.Prefixes, 1<<21)
 
 	case scanUpdateMsg:
-		v.done, v.total = msg.done, msg.total
+		v.done, v.total, v.foundN = msg.done, msg.total, msg.foundN
+		if msg.latest != nil && !v.hasIP(msg.latest.IP) {
+			v.found = append(v.found, *msg.latest)
+			v.fillTable()
+		}
 		if msg.final {
 			v.scanning = false
 			if msg.err != nil && len(msg.found) == 0 {
@@ -253,6 +258,15 @@ func (v *discoveryView) connectTarget() (config.Connection, bool) {
 	return config.Connection{}, false
 }
 
+func (v *discoveryView) hasIP(ip string) bool {
+	for _, f := range v.found {
+		if f.IP == ip {
+			return true
+		}
+	}
+	return false
+}
+
 func (v *discoveryView) communities() []string {
 	var out []string
 	for _, c := range strings.Split(v.comm.Value(), ",") {
@@ -304,7 +318,7 @@ func (v *discoveryView) startScan(m *Model) tea.Cmd {
 func (v *discoveryView) launch(m *Model, targets []string, maxHosts int) tea.Cmd {
 	ctx, cancel := context.WithCancel(context.Background())
 	v.cancel = cancel
-	v.ch = make(chan scanUpdateMsg, 256)
+	v.ch = make(chan scanUpdateMsg, 512)
 	v.scanning = true
 	v.done, v.total = 0, 0
 	v.found = nil
@@ -312,26 +326,32 @@ func (v *discoveryView) launch(m *Model, targets []string, maxHosts int) tea.Cmd
 	v.tbl.SetRows(nil)
 
 	opts := snmp.ScanOptions{
-		Targets:     targets,
-		Port:        161,
-		Version:     v.ver.value(),
-		Communities: v.communities(),
-		Base:        m.cfg.Last,
-		Timeout:     time.Duration(m.cfg.Poll.TimeoutSeconds) * time.Second,
-		Retries:     0,
-		Concurrency: 192,
-		MaxHosts:    maxHosts,
+		Targets:      targets,
+		Port:         161,
+		Version:      v.ver.value(),
+		Communities:  v.communities(),
+		Base:         m.cfg.Last,
+		ProbeTimeout: 400 * time.Millisecond,
+		Timeout:      time.Duration(m.cfg.Poll.TimeoutSeconds) * time.Second,
+		Retries:      0,
+		Concurrency:  256,
+		MaxHosts:     maxHosts,
 	}
 
 	ch := v.ch
 	go func() {
-		found, err := snmp.ScanCIDR(ctx, opts, func(d, t int) {
-			select {
-			case ch <- scanUpdateMsg{done: d, total: t}:
-			default:
+		found, err := snmp.ScanCIDR(ctx, opts, func(p snmp.ScanProgress) {
+			msg := scanUpdateMsg{done: p.Done, total: p.Total, foundN: p.Found, latest: p.Latest}
+			if p.Latest != nil {
+				ch <- msg // never drop a discovered device
+			} else {
+				select {
+				case ch <- msg:
+				default:
+				}
 			}
 		})
-		ch <- scanUpdateMsg{done: len(found), total: len(found), found: found, err: err, final: true}
+		ch <- scanUpdateMsg{done: len(found), total: len(found), foundN: len(found), found: found, err: err, final: true}
 	}()
 
 	return tea.Batch(
@@ -453,8 +473,10 @@ func (v *discoveryView) view(m *Model) string {
 		if v.total > 0 {
 			ratio = float64(v.done) / float64(v.total)
 		}
-		stat = m.spin.View() + " " + bar(st, ratio, minInt(m.cw-40, 40), st.T.Accent) +
-			fmt.Sprintf("  %d/%d  %d found", v.done, v.total, len(v.found))
+		el := time.Since(v.started).Round(time.Second)
+		stat = m.spin.View() + " " + bar(st, ratio, minInt(m.cw-52, 36), st.T.Accent) +
+			fmt.Sprintf("  %d/%d probed  %s found  %s", v.done, v.total,
+				st.Good.Render(fmt.Sprintf("%d", v.foundN)), el)
 	case v.err != "":
 		stat = st.Bad.Render("✖ " + v.err)
 	case v.exported != "":

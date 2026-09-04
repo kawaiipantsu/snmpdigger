@@ -122,6 +122,15 @@ Scan this host's private interface networks plus the common private LAN
 .RB ( discover )
 Cap on the number of addresses probed in one run (default 262144).
 .TP
+.BI \-\-probe\-timeout " ms"
+.RB ( discover )
+Timeout for the fast liveness probe sent to every address (default 400).  Only
+addresses that answer this get a full identify pass.
+.TP
+.BI \-\-concurrency " n"
+.RB ( discover )
+Parallel probes (default 256).
+.TP
 .BI \-\-interval " n"
 .RB ( monitor )
 Seconds between polls (default 5).

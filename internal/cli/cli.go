@@ -146,11 +146,12 @@ func normVer(v string) string {
 func cmdDiscover(args []string) int {
 	fs := flag.NewFlagSet("discover", flag.ContinueOnError)
 	spec := ConnFlags(fs)
-	concurrency := fs.Int("concurrency", 192, "number of parallel probes")
+	concurrency := fs.Int("concurrency", 256, "number of parallel probes")
 	communities := fs.String("communities", "", "comma-separated community list (overrides --community)")
 	asn := fs.String("asn", "", "resolve and scan every IPv4 prefix announced by this AS (e.g. AS13335)")
 	local := fs.Bool("local", false, "scan this host's private networks plus common LAN /24s")
 	maxHosts := fs.Int("max-hosts", snmp.DefaultMaxHosts, "cap on addresses probed in one run")
+	probeMS := fs.Int("probe-timeout", 400, "liveness-probe timeout in milliseconds")
 	asJSON := fs.Bool("json", false, "emit results as JSON")
 	fs.Usage = subUsage(fs, "discover <cidr> | --asn <n> | --local",
 		"Sweep IPv4 addresses for SNMP agents and identify each responder from its\nsystem group. Give a CIDR/IP, an AS number (--asn), or --local.")
@@ -193,28 +194,37 @@ func cmdDiscover(args []string) int {
 	}
 
 	opts := snmp.ScanOptions{
-		Targets:     targets,
-		Port:        uint16(spec.Port),
-		Version:     normVer(spec.Version),
-		Communities: comms,
-		Base:        spec.Connection(""),
-		Timeout:     time.Duration(spec.Timeout) * time.Second,
-		Retries:     spec.Retries,
-		Concurrency: *concurrency,
-		MaxHosts:    *maxHosts,
+		Targets:      targets,
+		Port:         uint16(spec.Port),
+		Version:      normVer(spec.Version),
+		Communities:  comms,
+		Base:         spec.Connection(""),
+		ProbeTimeout: time.Duration(*probeMS) * time.Millisecond,
+		Timeout:      time.Duration(spec.Timeout) * time.Second,
+		Retries:      spec.Retries,
+		Concurrency:  *concurrency,
+		MaxHosts:     *maxHosts,
 	}
 
 	fmt.Fprintf(os.Stderr, "[+] Scanning %s ...\n", label)
-	lastPct := -1
-	found, err := snmp.ScanCIDR(context.Background(), opts, func(done, total int) {
-		if total == 0 {
+	start := time.Now()
+	lastLine := time.Time{}
+	found, err := snmp.ScanCIDR(context.Background(), opts, func(p snmp.ScanProgress) {
+		if p.Latest != nil {
+			f := p.Latest
+			fmt.Fprintf(os.Stderr, "\r\033[K[+] %-15s %-6s %-14s %s\n",
+				f.IP, f.Version, trunc(f.Short(), 14), trunc(oneLine(f.SysDescr), 46))
+		}
+		if p.Total == 0 || time.Since(lastLine) < 200*time.Millisecond && p.Done < p.Total {
 			return
 		}
-		pct := done * 100 / total
-		if pct != lastPct && pct%5 == 0 {
-			fmt.Fprintf(os.Stderr, "\r[+] probed %d/%d (%d%%)      ", done, total, pct)
-			lastPct = pct
+		lastLine = time.Now()
+		pct := 0
+		if p.Total > 0 {
+			pct = p.Done * 100 / p.Total
 		}
+		fmt.Fprintf(os.Stderr, "\r\033[K[+] probed %d/%d (%d%%) · %d found · %s",
+			p.Done, p.Total, pct, p.Found, time.Since(start).Round(time.Second))
 	})
 	fmt.Fprintln(os.Stderr)
 	if err != nil {

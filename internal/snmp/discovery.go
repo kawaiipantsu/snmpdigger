@@ -14,20 +14,30 @@ import (
 
 // ScanOptions configures a sweep for SNMP agents across one or more ranges.
 type ScanOptions struct {
-	CIDR        string   // single range (kept for convenience)
-	Targets     []string // one or more CIDRs / IPs; takes precedence over CIDR
-	Port        uint16
-	Version     string            // v1 | v2c | v3
-	Communities []string          // v1/v2c: probe each until one answers
-	Base        config.Connection // v3: security params (host is overridden per target)
-	Timeout     time.Duration
-	Retries     int
-	Concurrency int
-	MaxHosts    int // hard cap on addresses probed (0 = default 262144)
+	CIDR         string   // single range (kept for convenience)
+	Targets      []string // one or more CIDRs / IPs; takes precedence over CIDR
+	Port         uint16
+	Version      string            // v1 | v2c | v3
+	Communities  []string          // v1/v2c: probe each until one answers
+	Base         config.Connection // v3: security params (host is overridden per target)
+	ProbeTimeout time.Duration     // phase-1 liveness GET timeout (default 400ms)
+	Timeout      time.Duration     // phase-2 detail GET timeout (default 1s)
+	Retries      int
+	Concurrency  int
+	MaxHosts     int // hard cap on addresses probed (0 = default 262144)
 }
 
 // DefaultMaxHosts caps how many addresses a single scan will probe.
 const DefaultMaxHosts = 1 << 18
+
+// ScanProgress is reported during a sweep. Latest is non-nil only on the tick
+// where a new device was just identified, so callers can render results live.
+type ScanProgress struct {
+	Done   int
+	Total  int
+	Found  int
+	Latest *Found
+}
 
 // Found is a discovered agent plus its identity.
 type Found struct {
@@ -57,11 +67,19 @@ func (f Found) Short() string {
 	return "SNMP device"
 }
 
-// ScanCIDR sweeps opts.Targets (or opts.CIDR) and returns responders. progress,
-// if non-nil, is called as (completed, total) after every host probe. Addresses
-// are streamed into the worker pool so even an ASN's worth of prefixes stays
-// bounded in memory; probing stops after opts.MaxHosts addresses.
-func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total int)) ([]Found, error) {
+type liveHost struct {
+	ip        string
+	community string
+	rtt       time.Duration
+}
+
+// ScanCIDR sweeps opts.Targets (or opts.CIDR) for SNMP agents. Each worker sends
+// one tiny GET (short timeout, no retries) as a liveness check and, only when
+// that answers, immediately fetches the full system group - so responders are
+// reported through progress.Latest the moment they are identified, not at the
+// end. Addresses are streamed into the pool so even an ASN's worth of prefixes
+// stays bounded in memory; probing stops after opts.MaxHosts addresses.
+func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(ScanProgress)) ([]Found, error) {
 	targets := opts.Targets
 	if len(targets) == 0 && opts.CIDR != "" {
 		targets = []string{opts.CIDR}
@@ -78,17 +96,19 @@ func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total i
 	if len(opts.Communities) == 0 {
 		opts.Communities = []string{"public"}
 	}
+	if opts.ProbeTimeout <= 0 {
+		opts.ProbeTimeout = 400 * time.Millisecond
+	}
 	if opts.Timeout <= 0 {
-		opts.Timeout = 800 * time.Millisecond
+		opts.Timeout = time.Second
 	}
 	if opts.Concurrency <= 0 {
-		opts.Concurrency = 64
+		opts.Concurrency = 256
 	}
 	if opts.MaxHosts <= 0 {
 		opts.MaxHosts = DefaultMaxHosts
 	}
 
-	// cheap arithmetic total (no materialisation), capped at MaxHosts
 	var grand int64
 	for _, t := range targets {
 		n, err := cidrHostCount(t)
@@ -104,8 +124,9 @@ func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total i
 	if total == 0 {
 		return nil, fmt.Errorf("targets contain no usable host addresses")
 	}
-	if opts.Concurrency > total {
-		opts.Concurrency = total
+	conc := opts.Concurrency
+	if conc > total {
+		conc = total
 	}
 
 	var (
@@ -114,7 +135,7 @@ func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total i
 		results []Found
 		done    int
 	)
-	jobs := make(chan string, opts.Concurrency)
+	jobs := make(chan string, conc)
 
 	worker := func() {
 		defer wg.Done()
@@ -124,29 +145,32 @@ func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total i
 				return
 			default:
 			}
-			if f, ok := probe(ctx, ip, opts); ok {
-				mu.Lock()
-				results = append(results, f)
-				mu.Unlock()
+			var latest *Found
+			if h, ok := probeQuick(ctx, ip, opts); ok {
+				if f, ok := probeDetail(ctx, h, opts); ok {
+					mu.Lock()
+					results = append(results, f)
+					mu.Unlock()
+					lf := f
+					latest = &lf
+				}
 			}
 			mu.Lock()
 			done++
-			d := done
+			d, n := done, len(results)
 			mu.Unlock()
 			if progress != nil {
-				progress(d, total)
+				progress(ScanProgress{Done: d, Total: total, Found: n, Latest: latest})
 			}
 		}
 	}
-
-	wg.Add(opts.Concurrency)
-	for i := 0; i < opts.Concurrency; i++ {
+	wg.Add(conc)
+	for i := 0; i < conc; i++ {
 		go worker()
 	}
 
-	// producer: stream host IPs from every target, honouring ctx + MaxHosts
 	sent := 0
-	seen := make(map[string]struct{}, 4096)
+	seen := make(map[string]struct{}, 8192)
 producer:
 	for _, t := range targets {
 		stop := false
@@ -188,16 +212,24 @@ producer:
 	return results, nil
 }
 
-func probe(ctx context.Context, ip string, opts ScanOptions) (Found, bool) {
+func scanPoll(opts ScanOptions, t time.Duration) config.Poll {
+	secs := int(t / time.Second)
+	if secs < 1 {
+		secs = 1
+	}
+	return config.Poll{TimeoutSeconds: secs, Retries: opts.Retries, MaxOIDsPerReq: 10, MaxRepetitions: 10}
+}
+
+// probeQuick sends one minimal GET per community with a short timeout to decide
+// whether an address is worth a full identify pass.
+func probeQuick(ctx context.Context, ip string, opts ScanOptions) (liveHost, bool) {
 	comms := opts.Communities
 	if strings.EqualFold(opts.Version, "v3") {
-		comms = []string{""} // single pass, creds come from opts.Base
+		comms = []string{""}
 	}
 	for _, community := range comms {
-		select {
-		case <-ctx.Done():
-			return Found{}, false
-		default:
+		if ctx.Err() != nil {
+			return liveHost{}, false
 		}
 		conn := opts.Base
 		conn.Host = ip
@@ -206,62 +238,84 @@ func probe(ctx context.Context, ip string, opts ScanOptions) (Found, bool) {
 		if !strings.EqualFold(opts.Version, "v3") {
 			conn.Community = community
 		}
-		poll := config.Poll{
-			TimeoutSeconds: int(opts.Timeout.Round(time.Second) / time.Second),
-			Retries:        opts.Retries,
-			MaxOIDsPerReq:  10,
-			MaxRepetitions: 10,
-		}
-		if poll.TimeoutSeconds < 1 {
-			poll.TimeoutSeconds = 1
-		}
-		live, err := NewLive(conn, poll)
+		live, err := NewLive(conn, scanPoll(opts, opts.ProbeTimeout))
 		if err != nil {
 			continue
 		}
-		// tighten timeout below one second where possible
-		live.client.Timeout = opts.Timeout
+		live.client.Timeout = opts.ProbeTimeout
+		live.client.Retries = 0
 		start := time.Now()
 		if err := live.Connect(); err != nil {
 			live.Close()
 			continue
 		}
-		vars, err := live.Get([]string{
-			OIDsysDescr, OIDsysObjectID, OIDsysUpTime,
-			OIDsysContact, OIDsysName, OIDsysLocation,
-		})
+		vars, err := live.Get([]string{OIDsysObjectID, OIDsysDescr})
 		rtt := time.Since(start)
 		live.Close()
-		if err != nil || !hasAnswer(vars) {
-			continue
+		if err == nil && hasAnswer(vars) {
+			return liveHost{ip: ip, community: community, rtt: rtt}, true
 		}
-
-		f := Found{IP: ip, Port: opts.Port, Version: opts.Version, Community: community, RTT: rtt}
-		si := SystemInfo{}
-		for _, v := range vars {
-			switch v.OID {
-			case OIDsysDescr:
-				f.SysDescr = v.Str
-			case OIDsysObjectID:
-				f.SysObjectID = strings.TrimPrefix(v.Str, ".")
-			case OIDsysUpTime:
-				f.Uptime = time.Duration(v.Num) * 10 * time.Millisecond
-			case OIDsysContact:
-				f.SysContact = v.Str
-			case OIDsysName:
-				f.SysName = v.Str
-			case OIDsysLocation:
-				f.SysLocation = v.Str
-			}
-		}
-		si.Descr = f.SysDescr
-		si.ObjectID = f.SysObjectID
-		si.analyse()
-		f.Vendor = si.Vendor
-		f.Role = si.Role
-		return f, true
 	}
-	return Found{}, false
+	return liveHost{}, false
+}
+
+// probeDetail fetches the full system group from a known responder.
+func probeDetail(ctx context.Context, h liveHost, opts ScanOptions) (Found, bool) {
+	if ctx.Err() != nil {
+		return Found{}, false
+	}
+	conn := opts.Base
+	conn.Host = h.ip
+	conn.Port = opts.Port
+	conn.Version = opts.Version
+	if !strings.EqualFold(opts.Version, "v3") {
+		conn.Community = h.community
+	}
+	live, err := NewLive(conn, scanPoll(opts, opts.Timeout))
+	if err != nil {
+		return Found{}, false
+	}
+	live.client.Timeout = opts.Timeout
+	start := time.Now()
+	if err := live.Connect(); err != nil {
+		live.Close()
+		return Found{}, false
+	}
+	vars, err := live.Get([]string{
+		OIDsysDescr, OIDsysObjectID, OIDsysUpTime,
+		OIDsysContact, OIDsysName, OIDsysLocation,
+	})
+	rtt := time.Since(start)
+	live.Close()
+	if err != nil || !hasAnswer(vars) {
+		// fall back to what the quick probe already proved
+		return Found{IP: h.ip, Port: opts.Port, Version: opts.Version, Community: h.community, RTT: h.rtt}, true
+	}
+
+	f := Found{IP: h.ip, Port: opts.Port, Version: opts.Version, Community: h.community, RTT: rtt}
+	si := SystemInfo{}
+	for _, v := range vars {
+		switch v.OID {
+		case OIDsysDescr:
+			f.SysDescr = v.Str
+		case OIDsysObjectID:
+			f.SysObjectID = strings.TrimPrefix(v.Str, ".")
+		case OIDsysUpTime:
+			f.Uptime = time.Duration(v.Num) * 10 * time.Millisecond
+		case OIDsysContact:
+			f.SysContact = v.Str
+		case OIDsysName:
+			f.SysName = v.Str
+		case OIDsysLocation:
+			f.SysLocation = v.Str
+		}
+	}
+	si.Descr = f.SysDescr
+	si.ObjectID = f.SysObjectID
+	si.analyse()
+	f.Vendor = si.Vendor
+	f.Role = si.Role
+	return f, true
 }
 
 func hasAnswer(vars []Var) bool {

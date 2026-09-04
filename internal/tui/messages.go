@@ -60,11 +60,13 @@ type statusMsg struct {
 }
 
 type scanUpdateMsg struct {
-	done  int
-	total int
-	found []snmp.Found
-	err   error
-	final bool
+	done   int
+	total  int
+	foundN int
+	latest *snmp.Found
+	found  []snmp.Found
+	err    error
+	final  bool
 }
 
 type asnResolvedMsg struct {
