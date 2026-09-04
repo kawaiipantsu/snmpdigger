@@ -1,0 +1,113 @@
+.TH SNMPDIGGER 1 "2026-09-04" "snmpdigger" "User Commands"
+.SH NAME
+snmpdigger \- fancy TUI SNMP browser, live grapher and network discovery tool
+.SH SYNOPSIS
+.B snmpdigger
+.RI [ options ]
+.br
+.B snmpdigger discover
+.I cidr
+.RI [ options ]
+.br
+.B snmpdigger walk
+.I host
+.RI [ oid ]
+.RI [ options ]
+.br
+.B snmpdigger get
+.I host
+.I oid
+.RI [ oid ... ]
+.RI [ options ]
+.br
+.B snmpdigger identify
+.I host
+.RI [ options ]
+.br
+.B snmpdigger config path
+.br
+.B snmpdigger version
+.SH DESCRIPTION
+.B snmpdigger
+is a terminal application for exploring SNMP agents.
+.PP
+Run with no arguments it starts in full\-screen TUI mode and opens a connection
+dialog asking for the target host, port, SNMP version and the matching
+credentials (community string for v1/v2c, or user / security level / auth and
+privacy parameters for v3).  Once connected it walks the MIB/OID tree and lets
+you browse it in a searchable, filterable, sortable list showing the numeric
+OID, the resolved human\-readable name, the type and the live value.  Values are
+polled continuously on an adjustable interval.
+.PP
+A graph tab plots any counter or gauge as a live line chart, bar chart, gauge,
+sparkline, large number or heatmap.  A discovery tab (and the
+.B discover
+sub\-command) sweeps an IPv4 CIDR range for SNMP\-speaking hosts and identifies
+them from their system group.  A settings tab persists everything to
+.IR ~/.config/snmpdigger/config.yaml .
+.PP
+The sub\-commands provide non\-interactive access to the same engine for scripting.
+.SH OPTIONS
+.TP
+.BI \-\-community " string"
+Community string for SNMP v1/v2c (default:
+.IR public ).
+.TP
+.BI \-\-version " v1|v2c|v3"
+SNMP protocol version (default:
+.IR v2c ).
+.TP
+.BI \-\-port " n"
+UDP port of the agent (default:
+.IR 161 ).
+.TP
+.B \-\-demo
+Start against a built\-in synthetic agent; no network access.  TUI only.
+.TP
+.BI \-\-user " name"
+SNMPv3 security name.
+.TP
+.BI \-\-level " noAuthNoPriv|authNoPriv|authPriv"
+SNMPv3 security level.
+.TP
+.BI \-\-auth\-proto " MD5|SHA|SHA224|SHA256|SHA384|SHA512"
+SNMPv3 authentication protocol.
+.TP
+.BI \-\-auth\-pass " string"
+SNMPv3 authentication passphrase.
+.TP
+.BI \-\-priv\-proto " DES|AES|AES192|AES256"
+SNMPv3 privacy protocol.
+.TP
+.BI \-\-priv\-pass " string"
+SNMPv3 privacy passphrase.
+.TP
+.BI \-\-context " string"
+SNMPv3 context name.
+.SH FILES
+.TP
+.I ~/.config/snmpdigger/config.yaml
+Persisted settings and the most recently used connection profile.  Honours
+.BR $XDG_CONFIG_HOME .
+.SH EXAMPLES
+.TP
+Start the TUI and connect interactively:
+.B snmpdigger
+.TP
+Explore the interface without a device:
+.B snmpdigger --demo
+.TP
+Discover every SNMP host on a subnet:
+.B snmpdigger discover 192.168.1.0/24 --community public
+.TP
+Walk a subtree from the shell:
+.B snmpdigger walk 10.0.0.1 1.3.6.1.2.1.2 --version v2c --community public
+.TP
+Identify a device:
+.B snmpdigger identify 10.0.0.1
+.SH AUTHOR
+THUGS(red) \(em https://thugs.red
+.SH SEE ALSO
+.BR snmpwalk (1),
+.BR snmpget (1),
+.BR snmptranslate (1)
