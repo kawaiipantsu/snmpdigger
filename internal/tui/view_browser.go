@@ -81,7 +81,7 @@ func newBrowserView(st Styles) browserView {
 }
 
 func (v *browserView) help() string {
-	return "/ search · f type-filter · s sort · S dir · enter drill · bksp up · r re-walk · g graph · c connect"
+	return "/ search · f type-filter · s sort · S dir · enter drill · bksp up · r re-walk · g graph"
 }
 
 func (v *browserView) pollOIDs(m *Model) []string {
@@ -303,11 +303,12 @@ func (v *browserView) refreshRows() {
 
 func (v *browserView) layout(m *Model) {
 	w := m.cw
-	oidW := clampInt(w*26/100, 16, 30)
-	nameW := clampInt(w*26/100, 14, 34)
+	oidW := clampInt(w*25/100, 16, 28)
+	nameW := clampInt(w*24/100, 14, 32)
 	typeW := 10
 	ageW := 5
-	valW := w - oidW - nameW - typeW - ageW - 6
+	// bubbles/table adds 2 cols of cell padding per column
+	valW := w - oidW - nameW - typeW - ageW - 2*5
 	if valW < 10 {
 		valW = 10
 	}

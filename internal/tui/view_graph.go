@@ -65,7 +65,7 @@ func (v *graphView) help() string {
 	if v.picking {
 		return "type to filter · ↑/↓ move · enter pick · esc cancel"
 	}
-	return "o pick OID · t chart type · d rate/raw (counters) · x clear · c connect"
+	return "o pick OID · t chart type · d rate/raw (counters) · x clear"
 }
 
 func (v *graphView) pollOIDs(m *Model) []string {

@@ -45,6 +45,11 @@ range and it sweeps the network for anything that answers SNMP.
   <code>snmpdigger</code> &nbsp;|&nbsp; <code>snmpdigger --demo</code> &nbsp;|&nbsp; <code>snmpdigger discover 192.168.1.0/24</code>
 </p>
 
+<p align="center">
+  <img src="assets/screen-browser.png" width="49%" alt="Browser tab — walking the MIB tree, live values">
+  <img src="assets/screen-graph.png" width="49%" alt="Graph tab — live braille line chart of a counter">
+</p>
+
 ## What's in the box
 
 | | |
@@ -106,23 +111,14 @@ Charts are hand-rolled — braille rasterisation for the line chart, block-glyph
 columns for bars and heatmap, a 5-row block font for the big-number readout — so
 there is nothing to render but text.
 
-```
-┌────────────┬──────────────────────────────────────────────────────────┐
-│  ╔════════╗ │  SNMP CONNECTION            ● CONNECTED                  │
-│  ║● ● ●   ║ │  target  10.0.0.1:161 v2c   host  core-sw-01            │
-│  ║ SNMP   ║ │  params  community=••••••                               │
-│  ║ DIGGER ║ │  role    Cisco network device (router/switch)          │
-│  ╚════════╝ │                                                          │
-├────────────┴──────────────────────────────────────────────────────────┤
-│  1 System │ 2 Browser │ 3 Graph │ 4 Discovery │ 5 Settings  ──────────  │
-├───────────────────────────────────────────────────────────────────────┤
-│                                                                       │
-│                        active tab content                             │
-│                                                                       │
-├───────────────────────────────────────────────────────────────────────┤
-│  ⠋ Walking 1.3.6.1.2.1 …            snmpdigger v0.1.0 (c) 2026 THUGS 21:04:17 │
-└───────────────────────────────────────────────────────────────────────┘
-```
+The chrome is fixed: a square terminal-window logo top-left, an extended-width
+connection header top-right (target, identified host, decoded role), the tab bar,
+the active view, and a one-line footer — live status and progress on the left,
+`snmpdigger <version> (c) 2026 ` + **THUGS** + a ticking clock on the right.
+
+<p align="center">
+  <img src="assets/screen-system.png" width="88%" alt="System tab — device identity, ownership, sysDescr and analysis findings">
+</p>
 
 ## Layout
 

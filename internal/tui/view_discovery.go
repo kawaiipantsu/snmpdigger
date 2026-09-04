@@ -261,7 +261,7 @@ func (v *discoveryView) layout(m *Model) {
 		{Title: "SNMP", Width: 5},
 		{Title: "UPTIME", Width: 14},
 		{Title: "SYSNAME", Width: 18},
-		{Title: "INFO", Width: clampInt(w-15-20-5-14-18-8, 10, 80)},
+		{Title: "INFO", Width: clampInt(w-15-20-5-14-18-2*6, 10, 80)},
 	})
 }
 

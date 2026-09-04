@@ -75,53 +75,83 @@ func (v *systemView) view(m *Model) string {
 	}
 	s := m.sys
 
-	kv := func(k, val string) string {
-		if val == "" {
-			val = st.Dim.Render("—")
+	outerW := m.cw - 1
+	if outerW > 108 {
+		outerW = 108 // keep the column readable on very wide terminals
+	}
+	innerW := outerW - 4 // minus border (2) and padding (2)
+	valW := innerW - 15
+	if valW < 8 {
+		valW = 8
+	}
+	panel := st.Panel.Width(innerW)
+
+	kv := func(k, val string, style lipgloss.Style) string {
+		if strings.TrimSpace(val) == "" {
+			return st.Dim.Render(padRight(k, 13)) + " " + st.Dim.Render("—")
 		}
-		return st.Dim.Render(padRight(k, 14)) + " " + val
+		return st.Dim.Render(padRight(k, 13)) + " " + style.Render(truncate(val, valW))
 	}
 
-	identity := []string{
+	identity := strings.Join([]string{
 		st.PanelTitle.Render("IDENTITY"),
-		kv("sysName", st.HeaderVal.Render(s.Name)),
-		kv("Role", st.Accent.Render(s.Role)),
-		kv("Vendor", valueOrDim(st, s.Vendor)),
-		kv("sysObjectID", valueOrDim(st, s.ObjectID)),
-		kv("Uptime", st.Good.Render(humanDur(s.Uptime))),
-		kv("Services", valueOrDim(st, strings.Join(s.Layers, ", "))),
-	}
+		kv("sysName", s.Name, st.HeaderVal),
+		kv("Role", s.Role, st.Accent),
+		kv("Vendor", s.Vendor, st.HeaderVal),
+		kv("sysObjectID", s.ObjectID, st.HeaderVal),
+		kv("Uptime", humanDur(s.Uptime), st.Good),
+		kv("Services", strings.Join(s.Layers, ", "), st.HeaderVal),
+	}, "\n")
 
-	contact := []string{
+	contact := strings.Join([]string{
 		st.PanelTitle.Render("LOCATION & OWNERSHIP"),
-		kv("sysContact", valueOrDim(st, s.Contact)),
-		kv("sysLocation", valueOrDim(st, s.Location)),
-		kv("Reachable", boolBadge(st, s.Reachable)),
-		kv("RTT", valueOrDim(st, fmt.Sprintf("%d ms", s.RTT.Milliseconds()))),
-	}
+		kv("sysContact", s.Contact, st.HeaderVal),
+		kv("sysLocation", s.Location, st.HeaderVal),
+		kv("Reachable", boolWord(s.Reachable), boolStyle(st, s.Reachable)),
+		kv("RTT", fmt.Sprintf("%d ms", s.RTT.Milliseconds()), st.HeaderVal),
+	}, "\n")
 
-	descrWrap := lipgloss.NewStyle().Width(m.cw - 6).Render(s.Descr)
-	descr := []string{
-		st.PanelTitle.Render("sysDescr"),
-		valueOrDim(st, descrWrap),
-	}
+	descrBody := lipgloss.NewStyle().Width(innerW).Render(orDashText(s.Descr))
+	descr := st.PanelTitle.Render("sysDescr") + "\n" + st.Dim.Render(descrBody)
 
-	analysis := []string{st.PanelTitle.Render("ANALYSIS")}
+	analysisLines := []string{st.PanelTitle.Render("ANALYSIS")}
 	if len(s.Notes) == 0 {
-		analysis = append(analysis, st.Good.Render("• nothing unusual detected"))
+		analysisLines = append(analysisLines, st.Good.Render("• nothing unusual detected"))
 	}
 	for _, n := range s.Notes {
-		analysis = append(analysis, st.Warn.Render("• "+n))
+		analysisLines = append(analysisLines,
+			st.Warn.Render("• ")+lipgloss.NewStyle().Foreground(st.T.Warn).Width(innerW-2).Render(n))
 	}
+	analysis := strings.Join(analysisLines, "\n")
 
-	col := lipgloss.NewStyle().Width((m.cw / 2) - 3)
-	left := col.Render(st.Panel.Render(strings.Join(identity, "\n")) + "\n" +
-		st.Panel.Render(strings.Join(analysis, "\n")))
-	right := col.Render(st.Panel.Render(strings.Join(contact, "\n")) + "\n" +
-		st.Panel.Render(strings.Join(descr, "\n")))
+	stack := lipgloss.JoinVertical(lipgloss.Left,
+		panel.Render(identity),
+		panel.Render(contact),
+		panel.Render(descr),
+		panel.Render(analysis),
+	)
+	return clip(stack, v.scroll, m.ch)
+}
 
-	grid := lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right)
-	return clip(grid, v.scroll, m.ch)
+func boolWord(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+func boolStyle(st Styles, b bool) lipgloss.Style {
+	if b {
+		return st.Good
+	}
+	return st.Bad
+}
+
+func orDashText(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "—"
+	}
+	return s
 }
 
 func valueOrDim(st Styles, s string) string {
