@@ -57,9 +57,17 @@ type Config struct {
 	UI     UI           `yaml:"ui"`
 	Last   Connection   `yaml:"last_connection"`
 	Recent []Connection `yaml:"recent,omitempty"`
+	Watch  []WatchEntry `yaml:"watch,omitempty"`
 
 	// path is the resolved config file location; not serialized.
 	path string
+}
+
+// WatchEntry is a single object pinned to the Watch tab.
+type WatchEntry struct {
+	OID  string `yaml:"oid"`
+	Name string `yaml:"name,omitempty"`
+	Rate bool   `yaml:"rate,omitempty"` // show per-second delta
 }
 
 // Default returns a fresh config with sane values.

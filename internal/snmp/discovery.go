@@ -12,9 +12,10 @@ import (
 	"github.com/kawaiipantsu/snmpdigger/internal/config"
 )
 
-// ScanOptions configures a CIDR sweep for SNMP agents.
+// ScanOptions configures a sweep for SNMP agents across one or more ranges.
 type ScanOptions struct {
-	CIDR        string
+	CIDR        string   // single range (kept for convenience)
+	Targets     []string // one or more CIDRs / IPs; takes precedence over CIDR
 	Port        uint16
 	Version     string            // v1 | v2c | v3
 	Communities []string          // v1/v2c: probe each until one answers
@@ -22,7 +23,11 @@ type ScanOptions struct {
 	Timeout     time.Duration
 	Retries     int
 	Concurrency int
+	MaxHosts    int // hard cap on addresses probed (0 = default 262144)
 }
+
+// DefaultMaxHosts caps how many addresses a single scan will probe.
+const DefaultMaxHosts = 1 << 18
 
 // Found is a discovered agent plus its identity.
 type Found struct {
@@ -52,15 +57,17 @@ func (f Found) Short() string {
 	return "SNMP device"
 }
 
-// ScanCIDR sweeps opts.CIDR and returns responders. progress, if non-nil, is
-// called as (completed, total) after every host probe.
+// ScanCIDR sweeps opts.Targets (or opts.CIDR) and returns responders. progress,
+// if non-nil, is called as (completed, total) after every host probe. Addresses
+// are streamed into the worker pool so even an ASN's worth of prefixes stays
+// bounded in memory; probing stops after opts.MaxHosts addresses.
 func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total int)) ([]Found, error) {
-	hosts, err := expandCIDR(opts.CIDR)
-	if err != nil {
-		return nil, err
+	targets := opts.Targets
+	if len(targets) == 0 && opts.CIDR != "" {
+		targets = []string{opts.CIDR}
 	}
-	if len(hosts) == 0 {
-		return nil, fmt.Errorf("no host addresses in %s", opts.CIDR)
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("no scan targets given")
 	}
 	if opts.Port == 0 {
 		opts.Port = 161
@@ -77,8 +84,28 @@ func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total i
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 64
 	}
-	if opts.Concurrency > len(hosts) {
-		opts.Concurrency = len(hosts)
+	if opts.MaxHosts <= 0 {
+		opts.MaxHosts = DefaultMaxHosts
+	}
+
+	// cheap arithmetic total (no materialisation), capped at MaxHosts
+	var grand int64
+	for _, t := range targets {
+		n, err := cidrHostCount(t)
+		if err != nil {
+			return nil, err
+		}
+		grand += n
+	}
+	total := int(grand)
+	if grand > int64(opts.MaxHosts) {
+		total = opts.MaxHosts
+	}
+	if total == 0 {
+		return nil, fmt.Errorf("targets contain no usable host addresses")
+	}
+	if opts.Concurrency > total {
+		opts.Concurrency = total
 	}
 
 	var (
@@ -87,7 +114,7 @@ func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total i
 		results []Found
 		done    int
 	)
-	jobs := make(chan string)
+	jobs := make(chan string, opts.Concurrency)
 
 	worker := func() {
 		defer wg.Done()
@@ -107,7 +134,7 @@ func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total i
 			d := done
 			mu.Unlock()
 			if progress != nil {
-				progress(d, len(hosts))
+				progress(d, total)
 			}
 		}
 	}
@@ -116,12 +143,39 @@ func ScanCIDR(ctx context.Context, opts ScanOptions, progress func(done, total i
 	for i := 0; i < opts.Concurrency; i++ {
 		go worker()
 	}
-dispatch:
-	for _, ip := range hosts {
-		select {
-		case <-ctx.Done():
-			break dispatch
-		case jobs <- ip:
+
+	// producer: stream host IPs from every target, honouring ctx + MaxHosts
+	sent := 0
+	seen := make(map[string]struct{}, 4096)
+producer:
+	for _, t := range targets {
+		stop := false
+		_ = walkCIDR(t, func(ip string) bool {
+			select {
+			case <-ctx.Done():
+				stop = true
+				return false
+			default:
+			}
+			if _, dup := seen[ip]; dup {
+				return true
+			}
+			seen[ip] = struct{}{}
+			select {
+			case <-ctx.Done():
+				stop = true
+				return false
+			case jobs <- ip:
+				sent++
+				if sent >= opts.MaxHosts {
+					stop = true
+					return false
+				}
+				return true
+			}
+		})
+		if stop {
+			break producer
 		}
 	}
 	close(jobs)
@@ -265,6 +319,89 @@ func incIP(ip net.IP) {
 			break
 		}
 	}
+}
+
+// cidrHostCount returns how many usable host addresses a CIDR (or bare IP) holds,
+// without materialising them. Network + broadcast are excluded for IPv4 prefixes
+// of /30 or shorter.
+func cidrHostCount(cidr string) (int64, error) {
+	cidr = strings.TrimSpace(cidr)
+	if cidr == "" {
+		return 0, fmt.Errorf("empty CIDR / address")
+	}
+	if !strings.Contains(cidr, "/") {
+		if net.ParseIP(cidr) != nil {
+			return 1, nil
+		}
+		return 0, fmt.Errorf("%q is not an IP or CIDR", cidr)
+	}
+	ip, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return 0, err
+	}
+	if ip.To4() == nil {
+		return 0, fmt.Errorf("only IPv4 ranges are supported (%s)", cidr)
+	}
+	ones, bits := ipnet.Mask.Size()
+	host := bits - ones
+	if host >= 31 { // guard against overflow / absurd inputs
+		return 1 << 30, nil
+	}
+	n := int64(1) << uint(host)
+	if host >= 2 {
+		n -= 2 // network + broadcast
+	}
+	return n, nil
+}
+
+// walkCIDR streams every usable host address in a CIDR (or bare IP) to fn.
+// Returning false from fn stops the walk early.
+func walkCIDR(cidr string, fn func(ip string) bool) error {
+	cidr = strings.TrimSpace(cidr)
+	if !strings.Contains(cidr, "/") {
+		if ip := net.ParseIP(cidr); ip != nil {
+			fn(ip.String())
+			return nil
+		}
+		return fmt.Errorf("%q is not an IP or CIDR", cidr)
+	}
+	ip, ipnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return err
+	}
+	if ip.To4() == nil {
+		return fmt.Errorf("only IPv4 ranges are supported (%s)", cidr)
+	}
+	ones, bits := ipnet.Mask.Size()
+	dropEnds := (bits - ones) >= 2
+
+	cur := make(net.IP, len(ipnet.IP))
+	copy(cur, ipnet.IP)
+	network := make(net.IP, len(cur))
+	copy(network, cur)
+
+	first := true
+	for ipnet.Contains(cur) {
+		next := make(net.IP, len(cur))
+		copy(next, cur)
+		incIP(next)
+		isBroadcast := !ipnet.Contains(next)
+
+		skip := false
+		if dropEnds {
+			if first || isBroadcast {
+				skip = true
+			}
+		}
+		if !skip {
+			if !fn(cur.String()) {
+				return nil
+			}
+		}
+		first = false
+		cur = next
+	}
+	return nil
 }
 
 func ipLess(a, b string) bool {

@@ -6,7 +6,7 @@ snmpdigger \- fancy TUI SNMP browser, live grapher and network discovery tool
 .RI [ options ]
 .br
 .B snmpdigger discover
-.I cidr
+.RI { cidr | \-\-asn\ n | \-\-local }
 .RI [ options ]
 .br
 .B snmpdigger walk
@@ -20,30 +20,47 @@ snmpdigger \- fancy TUI SNMP browser, live grapher and network discovery tool
 .RI [ oid ... ]
 .RI [ options ]
 .br
+.B snmpdigger monitor
+.I host
+.I oid
+.RI [ oid ... ]
+.RI [ \-\-interval\ n ]
+.RI [ \-\-delta ]
+.br
 .B snmpdigger identify
 .I host
 .RI [ options ]
 .br
-.B snmpdigger config path
+.B snmpdigger config
+.RI { path | show }
 .br
 .B snmpdigger version
 .SH DESCRIPTION
 .B snmpdigger
 is a terminal application for exploring SNMP agents.
 .PP
-Run with no arguments it starts in full\-screen TUI mode and opens a connection
-dialog asking for the target host, port, SNMP version and the matching
-credentials (community string for v1/v2c, or user / security level / auth and
-privacy parameters for v3).  Once connected it walks the MIB/OID tree and lets
-you browse it in a searchable, filterable, sortable list showing the numeric
-OID, the resolved human\-readable name, the type and the live value.  Values are
-polled continuously on an adjustable interval.
+Run with no arguments it starts in full\-screen TUI mode, opening on the
+Discovery tab.  The connection dialog is never forced: press
+.B c
+(or select a discovered host) to enter the target host, port, SNMP version and
+the matching credentials (community string for v1/v2c, or user / security level
+/ auth and privacy parameters for v3).  Once connected it walks the MIB/OID tree
+and lets you browse it in a searchable, filterable, sortable list showing the
+numeric OID, the resolved human\-readable name, the type and the live value.
+Values are polled continuously on an adjustable interval.
 .PP
-A graph tab plots any counter or gauge as a live line chart, bar chart, gauge,
-sparkline, large number or heatmap.  A discovery tab (and the
+Tabs: Discovery, System (device fingerprinting), Interfaces (a live IF\-MIB
+dashboard with per\-port bit/s and utilisation), Browser, Graph (line, bar,
+gauge, sparkline, big\-number or heatmap), Watch (a persistent pin\-board of
+objects), Catalog (an offline MIB module/object reference plus on\-demand MIB
+download) and Settings.  The
 .B discover
-sub\-command) sweeps an IPv4 CIDR range for SNMP\-speaking hosts and identifies
-them from their system group.  A settings tab persists everything to
+sub\-command and tab sweep for SNMP\-speaking hosts by IPv4 CIDR range, by AS
+number
+.RB ( \-\-asn ,
+prefixes resolved via RIPEstat), or across the host's local networks
+.RB ( \-\-local ).
+Settings persist to
 .IR ~/.config/snmpdigger/config.yaml .
 .PP
 The sub\-commands provide non\-interactive access to the same engine for scripting.
@@ -84,6 +101,34 @@ SNMPv3 privacy passphrase.
 .TP
 .BI \-\-context " string"
 SNMPv3 context name.
+.TP
+.BI \-\-communities " a,b,c"
+.RB ( discover )
+Comma\-separated list of community strings to probe on each host.
+.TP
+.BI \-\-asn " n"
+.RB ( discover )
+Resolve every IPv4 prefix announced by AS
+.I n
+(via the RIPEstat data API) and scan them all.  May take a long time; the sweep
+is streamed and can be interrupted.
+.TP
+.B \-\-local
+.RB ( discover )
+Scan this host's private interface networks plus the common private LAN
+.RI / 24s.
+.TP
+.BI \-\-max\-hosts " n"
+.RB ( discover )
+Cap on the number of addresses probed in one run (default 262144).
+.TP
+.BI \-\-interval " n"
+.RB ( monitor )
+Seconds between polls (default 5).
+.TP
+.B \-\-delta
+.RB ( monitor )
+Print the per\-second rate for counter values instead of the raw counter.
 .SH FILES
 .TP
 .I ~/.config/snmpdigger/config.yaml
@@ -100,8 +145,16 @@ Explore the interface without a device:
 Discover every SNMP host on a subnet:
 .B snmpdigger discover 192.168.1.0/24 --community public
 .TP
+Scan your local networks and everything an AS announces:
+.B snmpdigger discover --local
+.br
+.B snmpdigger discover --asn AS13335 --json
+.TP
 Walk a subtree from the shell:
 .B snmpdigger walk 10.0.0.1 1.3.6.1.2.1.2 --version v2c --community public
+.TP
+Follow a counter's rate like watch(1):
+.B snmpdigger monitor 10.0.0.1 1.3.6.1.2.1.2.2.1.10.2 --delta --interval 2
 .TP
 Identify a device:
 .B snmpdigger identify 10.0.0.1

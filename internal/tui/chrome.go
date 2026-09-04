@@ -122,10 +122,14 @@ func (m *Model) renderHelpLine(width int) string {
 	switch m.activeTab {
 	case tabSystem:
 		h = m.system.help()
+	case tabInterfaces:
+		h = m.ifaces.help()
 	case tabBrowser:
 		h = m.browser.help()
 	case tabGraph:
 		h = m.graph.help()
+	case tabWatch:
+		h = m.watch.help()
 	case tabDiscovery:
 		h = m.discovery.help()
 	case tabCatalog:

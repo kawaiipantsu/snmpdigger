@@ -2,9 +2,13 @@ package snmp
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 )
+
+func mustIP(s string) net.IP       { return net.ParseIP(s) }
+func contextTODO() context.Context { return context.TODO() }
 
 func TestOIDLess(t *testing.T) {
 	cases := []struct {
@@ -109,6 +113,74 @@ func TestGuessRole(t *testing.T) {
 	for descr, want := range cases {
 		if got := guessRole(descr, "", 0); got != want {
 			t.Errorf("guessRole(%q)=%q want %q", descr, got, want)
+		}
+	}
+}
+
+func TestCIDRHostCount(t *testing.T) {
+	cases := map[string]int64{
+		"192.168.1.0/24": 254,
+		"10.0.0.0/30":    2,
+		"10.0.0.0/31":    2,
+		"10.0.0.5/32":    1,
+		"10.1.2.3":       1,
+		"172.16.0.0/16":  65534,
+	}
+	for cidr, want := range cases {
+		got, err := cidrHostCount(cidr)
+		if err != nil {
+			t.Fatalf("cidrHostCount(%s): %v", cidr, err)
+		}
+		if got != want {
+			t.Errorf("cidrHostCount(%s)=%d want %d", cidr, got, want)
+		}
+	}
+}
+
+func TestWalkCIDRStreaming(t *testing.T) {
+	var got []string
+	if err := walkCIDR("192.168.5.0/29", func(ip string) bool { got = append(got, ip); return true }); err != nil {
+		t.Fatal(err)
+	}
+	// /29 => 8 addrs minus network+broadcast => 6
+	if len(got) != 6 || got[0] != "192.168.5.1" || got[5] != "192.168.5.6" {
+		t.Fatalf("got %v", got)
+	}
+	// early stop
+	n := 0
+	_ = walkCIDR("10.9.0.0/24", func(string) bool { n++; return n < 5 })
+	if n != 5 {
+		t.Fatalf("early-stop walked %d, want 5", n)
+	}
+}
+
+func TestIsPrivateV4(t *testing.T) {
+	priv := []string{"10.1.2.3", "172.16.0.1", "172.31.255.1", "192.168.0.1", "100.64.0.1"}
+	pub := []string{"8.8.8.8", "1.1.1.1", "172.15.0.1", "172.32.0.1", "192.169.0.1"}
+	for _, s := range priv {
+		if !isPrivateV4(mustIP(s)) {
+			t.Errorf("%s should be private", s)
+		}
+	}
+	for _, s := range pub {
+		if isPrivateV4(mustIP(s)) {
+			t.Errorf("%s should be public", s)
+		}
+	}
+}
+
+func TestResolveASNParseErrors(t *testing.T) {
+	for _, bad := range []string{"", "banana", "AS", "AS12x"} {
+		if _, err := ResolveASN(contextTODO(), bad); err == nil {
+			t.Errorf("ResolveASN(%q) should error", bad)
+		}
+	}
+}
+
+func TestLocalScanTargetsValid(t *testing.T) {
+	for _, cidr := range LocalScanTargets() {
+		if _, err := cidrHostCount(cidr); err != nil {
+			t.Errorf("LocalScanTargets produced invalid %q: %v", cidr, err)
 		}
 	}
 }

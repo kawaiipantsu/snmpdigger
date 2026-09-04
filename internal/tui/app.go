@@ -1,7 +1,7 @@
 // Package tui implements the snmpdigger terminal UI: a square logo, an
-// extended-width connection header, a tab bar (System / Browser / Graph /
-// Discovery / Catalog / Settings), a live content area and a one-line status
-// footer.
+// extended-width connection header, a tab bar (Discovery / System / Interfaces /
+// Browser / Graph / Watch / Catalog / Settings), a live content area and a
+// one-line status footer.
 package tui
 
 import (
@@ -20,15 +20,17 @@ import (
 type tabID int
 
 const (
-	tabSystem tabID = iota
+	tabDiscovery tabID = iota
+	tabSystem
+	tabInterfaces
 	tabBrowser
 	tabGraph
-	tabDiscovery
+	tabWatch
 	tabCatalog
 	tabSettings
 )
 
-var tabNames = []string{"System", "Browser", "Graph", "Discovery", "Catalog", "Settings"}
+var tabNames = []string{"Discovery", "System", "Interfaces", "Browser", "Graph", "Watch", "Catalog", "Settings"}
 
 // Options configures a TUI run.
 type Options struct {
@@ -69,8 +71,10 @@ type Model struct {
 	connect     connectModel
 
 	system    systemView
+	ifaces    interfacesView
 	browser   browserView
 	graph     graphView
+	watch     watchView
 	discovery discoveryView
 	catalog   catalogView
 	settings  settingsView
@@ -98,8 +102,10 @@ func newModel(cfg *config.Config, opts Options) *Model {
 		st:         st,
 		activeTab:  tabDiscovery,
 		connect:    newConnectModel(st, cfg.Last),
+		ifaces:     newInterfacesView(st),
 		browser:    newBrowserView(st),
 		graph:      newGraphView(st, cfg.UI.GraphHistory),
+		watch:      newWatchView(st, cfg),
 		discovery:  newDiscoveryView(st, cfg.Last),
 		catalog:    newCatalogView(st),
 		settings:   settingsView{},
@@ -153,8 +159,10 @@ func (m *Model) reschedulePoll() tea.Cmd { return nil }
 func (m *Model) applyTheme() {
 	m.st = NewStyles(ThemeByName(m.cfg.UI.Theme))
 	m.spin.Style = lipgloss.NewStyle().Foreground(m.st.T.Accent)
+	m.ifaces.setTheme(m.st)
 	m.browser.setTheme(m.st)
 	m.graph.setTheme(m.st)
+	m.watch.setTheme(m.st)
 	m.discovery.setTheme(m.st)
 	m.catalog.setTheme(m.st)
 	if m.showConnect {
@@ -166,10 +174,14 @@ func scopeName(t tabID) string {
 	switch t {
 	case tabSystem:
 		return "system"
+	case tabInterfaces:
+		return "interfaces"
 	case tabBrowser:
 		return "browser"
 	case tabGraph:
 		return "graph"
+	case tabWatch:
+		return "watch"
 	default:
 		return ""
 	}
@@ -216,6 +228,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds := []tea.Cmd{
 			m.browser.update(m, msg),
 			m.graph.update(m, msg),
+			m.ifaces.update(m, msg),
 		}
 		return m, tea.Batch(cmds...)
 
@@ -228,10 +241,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.system.update(m, msg),
 			m.browser.update(m, msg),
 			m.graph.update(m, msg),
+			m.ifaces.update(m, msg),
+			m.watch.update(m, msg),
 		}
 		return m, tea.Batch(cmds...)
 
-	case scanUpdateMsg:
+	case scanUpdateMsg, asnResolvedMsg:
 		return m, m.discovery.update(m, msg)
 
 	case openConnectMsg:
@@ -279,6 +294,17 @@ func (m *Model) onKey(msg tea.KeyMsg) tea.Cmd {
 			connectCmd(m.cfg, intent.conn, false))
 	}
 
+	// [ and ] always switch tabs - a guaranteed escape from any view, even
+	// while a text field is focused (they're never meaningful field input).
+	switch msg.String() {
+	case "]", "shift+right", "ctrl+right":
+		m.activeTab = (m.activeTab + 1) % tabID(len(tabNames))
+		return m.onTabSwitch()
+	case "[", "shift+left", "ctrl+left":
+		m.activeTab = (m.activeTab - 1 + tabID(len(tabNames))) % tabID(len(tabNames))
+		return m.onTabSwitch()
+	}
+
 	if !m.capturing() {
 		switch msg.String() {
 		case "q":
@@ -287,15 +313,11 @@ func (m *Model) onKey(msg tea.KeyMsg) tea.Cmd {
 			m.connect = newConnectModel(m.st, m.cfg.Last)
 			m.showConnect = true
 			return status("Enter the SNMP connection details", stInfo, false)
-		case "]", "shift+right":
-			m.activeTab = (m.activeTab + 1) % tabID(len(tabNames))
-			return m.onTabSwitch()
-		case "[", "shift+left":
-			m.activeTab = (m.activeTab - 1 + tabID(len(tabNames))) % tabID(len(tabNames))
-			return m.onTabSwitch()
-		case "1", "2", "3", "4", "5", "6":
-			m.activeTab = tabID(msg.String()[0] - '1')
-			return m.onTabSwitch()
+		case "1", "2", "3", "4", "5", "6", "7", "8":
+			if n := tabID(msg.String()[0] - '1'); int(n) < len(tabNames) {
+				m.activeTab = n
+				return m.onTabSwitch()
+			}
 		}
 	}
 
@@ -314,15 +336,21 @@ func (m *Model) capturing() bool {
 	if m.showConnect {
 		return true
 	}
+	type capturer interface{ capturing() bool }
 	switch m.activeTab {
 	case tabBrowser:
 		return m.browser.searching
 	case tabGraph:
 		return m.graph.picking
+	case tabInterfaces:
+		return m.ifaces.filtering
+	case tabWatch:
+		return m.watch.filtering
 	case tabDiscovery:
-		return m.discovery.scanning || m.discovery.focus <= 1
+		return m.discovery.scanning || m.discovery.resolving ||
+			m.discovery.focus == dfTarget || m.discovery.focus == dfComm
 	case tabCatalog:
-		if c, ok := any(&m.catalog).(interface{ capturing() bool }); ok {
+		if c, ok := any(&m.catalog).(capturer); ok {
 			return c.capturing()
 		}
 	}
@@ -333,10 +361,14 @@ func (m *Model) updateActive(msg tea.Msg) tea.Cmd {
 	switch m.activeTab {
 	case tabSystem:
 		return m.system.update(m, msg)
+	case tabInterfaces:
+		return m.ifaces.update(m, msg)
 	case tabBrowser:
 		return m.browser.update(m, msg)
 	case tabGraph:
 		return m.graph.update(m, msg)
+	case tabWatch:
+		return m.watch.update(m, msg)
 	case tabDiscovery:
 		return m.discovery.update(m, msg)
 	case tabCatalog:
@@ -355,10 +387,14 @@ func (m *Model) pollActive() tea.Cmd {
 	switch m.activeTab {
 	case tabSystem:
 		oids = m.system.pollOIDs(m)
+	case tabInterfaces:
+		oids = m.ifaces.pollOIDs(m)
 	case tabBrowser:
 		oids = m.browser.pollOIDs(m)
 	case tabGraph:
 		oids = m.graph.pollOIDs(m)
+	case tabWatch:
+		oids = m.watch.pollOIDs(m)
 	}
 	if len(oids) == 0 {
 		return nil
@@ -389,6 +425,7 @@ func (m *Model) onConnectResult(msg connectResultMsg) tea.Cmd {
 		status("Connected — identifying device and walking the tree…", stGood, true),
 		discoverSystemCmd(m.src),
 		m.browser.onConnect(m),
+		m.ifaces.onConnect(m),
 		m.pollActive(),
 	)
 }
@@ -426,10 +463,14 @@ func (m *Model) activeView() string {
 	switch m.activeTab {
 	case tabSystem:
 		return m.system.view(m)
+	case tabInterfaces:
+		return m.ifaces.view(m)
 	case tabBrowser:
 		return m.browser.view(m)
 	case tabGraph:
 		return m.graph.view(m)
+	case tabWatch:
+		return m.watch.view(m)
 	case tabDiscovery:
 		return m.discovery.view(m)
 	case tabCatalog:

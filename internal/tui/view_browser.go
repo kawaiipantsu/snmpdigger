@@ -81,7 +81,7 @@ func newBrowserView(st Styles) browserView {
 }
 
 func (v *browserView) help() string {
-	return "/ search · f type-filter · s sort · S dir · enter drill · bksp up · r re-walk · g graph"
+	return "/ search · f filter · s sort · enter drill · bksp up · g graph · space watch · e export · r re-walk"
 }
 
 func (v *browserView) pollOIDs(m *Model) []string {
@@ -219,12 +219,40 @@ func (v *browserView) update(m *Model, msg tea.Msg) tea.Cmd {
 					}
 				}
 			}
+		case " ", "space":
+			if row := v.tbl.SelectedRow(); row != nil {
+				oid := strings.TrimSpace(row[0])
+				for _, r := range v.filtered {
+					if r.oid == oid {
+						m.watch.add(r.oid, r.name, r.kind)
+						return status("Watching "+r.name, stGood, false)
+					}
+				}
+			}
+		case "e":
+			return v.export(m)
 		}
 	}
 
 	var cmd tea.Cmd
 	v.tbl, cmd = v.tbl.Update(msg)
 	return cmd
+}
+
+func (v *browserView) export(m *Model) tea.Cmd {
+	if len(v.filtered) == 0 {
+		return status("nothing to export", stWarn, false)
+	}
+	rows := make([][]string, 0, len(v.filtered))
+	for _, r := range v.filtered {
+		cur := v.currentVar(r.oid)
+		rows = append(rows, []string{r.oid, r.name, cur.Kind.String(), oneLineText(cur.Display())})
+	}
+	path, err := exportCSV("walk", []string{"oid", "name", "type", "value"}, rows)
+	if err != nil {
+		return status("export failed: "+err.Error(), stBad, false)
+	}
+	return status(fmt.Sprintf("exported %d objects → %s", len(rows), path), stGood, false)
 }
 
 func (v *browserView) applyFilter() {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -36,6 +37,8 @@ func Main(args []string) int {
 		return cmdGet(args[2:])
 	case "identify":
 		return cmdIdentify(args[2:])
+	case "monitor":
+		return cmdMonitor(args[2:])
 	case "config":
 		return cmdConfig(args[2:])
 	case "version", "--version", "-v":
@@ -143,28 +146,54 @@ func normVer(v string) string {
 func cmdDiscover(args []string) int {
 	fs := flag.NewFlagSet("discover", flag.ContinueOnError)
 	spec := ConnFlags(fs)
-	concurrency := fs.Int("concurrency", 128, "number of parallel probes")
+	concurrency := fs.Int("concurrency", 192, "number of parallel probes")
 	communities := fs.String("communities", "", "comma-separated community list (overrides --community)")
+	asn := fs.String("asn", "", "resolve and scan every IPv4 prefix announced by this AS (e.g. AS13335)")
+	local := fs.Bool("local", false, "scan this host's private networks plus common LAN /24s")
+	maxHosts := fs.Int("max-hosts", snmp.DefaultMaxHosts, "cap on addresses probed in one run")
 	asJSON := fs.Bool("json", false, "emit results as JSON")
-	fs.Usage = subUsage(fs, "discover <cidr>",
-		"Sweep an IPv4 CIDR range (or a single address) for SNMP agents and\nidentify each responder from its system group.")
+	fs.Usage = subUsage(fs, "discover <cidr> | --asn <n> | --local",
+		"Sweep IPv4 addresses for SNMP agents and identify each responder from its\nsystem group. Give a CIDR/IP, an AS number (--asn), or --local.")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if fs.NArg() < 1 {
-		fmt.Fprintln(os.Stderr, "snmpdigger: discover requires a <cidr> argument")
-		fs.Usage()
-		return 2
-	}
-	cidr := fs.Arg(0)
 
 	comms := []string{spec.Community}
 	if *communities != "" {
 		comms = splitComma(*communities)
 	}
 
+	var targets []string
+	var label string
+	switch {
+	case *local:
+		targets = snmp.LocalScanTargets()
+		label = "local networks (" + snmp.SummarizeTargets(targets) + ")"
+	case strings.TrimSpace(*asn) != "":
+		fmt.Fprintf(os.Stderr, "[+] Resolving prefixes for %s ...\n", *asn)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		info, err := snmp.ResolveASN(ctx, *asn)
+		cancel()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "snmpdigger: %v\n", err)
+			return 1
+		}
+		targets = info.Prefixes
+		if *maxHosts == snmp.DefaultMaxHosts {
+			*maxHosts = 1 << 21
+		}
+		label = fmt.Sprintf("%s (%s) — %d prefixes, %s", info.ASN, info.Holder, len(info.Prefixes), snmp.SummarizeTargets(info.Prefixes))
+	case fs.NArg() >= 1:
+		targets = []string{fs.Arg(0)}
+		label = fs.Arg(0)
+	default:
+		fmt.Fprintln(os.Stderr, "snmpdigger: discover needs a <cidr>, --asn <n>, or --local")
+		fs.Usage()
+		return 2
+	}
+
 	opts := snmp.ScanOptions{
-		CIDR:        cidr,
+		Targets:     targets,
 		Port:        uint16(spec.Port),
 		Version:     normVer(spec.Version),
 		Communities: comms,
@@ -172,9 +201,10 @@ func cmdDiscover(args []string) int {
 		Timeout:     time.Duration(spec.Timeout) * time.Second,
 		Retries:     spec.Retries,
 		Concurrency: *concurrency,
+		MaxHosts:    *maxHosts,
 	}
 
-	fmt.Fprintf(os.Stderr, "[+] Scanning %s ...\n", cidr)
+	fmt.Fprintf(os.Stderr, "[+] Scanning %s ...\n", label)
 	lastPct := -1
 	found, err := snmp.ScanCIDR(context.Background(), opts, func(done, total int) {
 		if total == 0 {
@@ -360,6 +390,101 @@ func cmdIdentify(args []string) int {
 }
 
 // ---------------------------------------------------------------------------
+// monitor
+// ---------------------------------------------------------------------------
+
+func cmdMonitor(args []string) int {
+	fs := flag.NewFlagSet("monitor", flag.ContinueOnError)
+	spec := ConnFlags(fs)
+	interval := fs.Int("interval", 5, "seconds between polls")
+	count := fs.Int("count", 0, "number of polls (0 = run until interrupted)")
+	delta := fs.Bool("delta", false, "print per-second rate for counter values")
+	numeric := fs.Bool("numeric", false, "do not resolve MIB names")
+	fs.Usage = subUsage(fs, "monitor <host> <oid> [oid...]",
+		"Poll one or more objects on a fixed interval and print a timestamped line\nper tick (a scriptable `watch` for SNMP).")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() < 2 {
+		fmt.Fprintln(os.Stderr, "snmpdigger: monitor requires a <host> and at least one <oid>")
+		fs.Usage()
+		return 2
+	}
+	host := fs.Arg(0)
+	oids := fs.Args()[1:]
+
+	src, err := snmp.NewLive(spec.Connection(host), spec.Poll())
+	if err != nil {
+		return errf(err)
+	}
+	defer src.Close()
+	if err := src.Connect(); err != nil {
+		return errf(err)
+	}
+	res := resolver(*numeric)
+
+	if *interval < 1 {
+		*interval = 1
+	}
+	labels := make([]string, len(oids))
+	for i, o := range oids {
+		labels[i] = o
+		if res != nil {
+			if n := res.Name(o); n != "" && n != o {
+				labels[i] = n
+			}
+		}
+	}
+
+	prev := map[string]float64{}
+	prevT := time.Time{}
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+
+	for tick := 0; *count == 0 || tick < *count; tick++ {
+		now := time.Now()
+		vars, err := src.Get(oids)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s  error: %v\n", now.Format("15:04:05"), err)
+		} else {
+			var b strings.Builder
+			b.WriteString(now.Format("15:04:05"))
+			for i, v := range vars {
+				val := v.Display()
+				if *delta && v.Kind.String() == "Counter" && !prevT.IsZero() {
+					dt := now.Sub(prevT).Seconds()
+					if dt > 0 {
+						d := v.Num - prev[v.OID]
+						if d < 0 {
+							d = v.Num
+						}
+						val = fmt.Sprintf("%.2f/s", d/dt)
+					}
+				}
+				prev[v.OID] = v.Num
+				name := labels[i]
+				if i >= len(labels) {
+					name = v.OID
+				}
+				fmt.Fprintf(&b, "  %s=%s", name, val)
+			}
+			fmt.Println(b.String())
+		}
+		prevT = now
+		if *count != 0 && tick == *count-1 {
+			break
+		}
+		select {
+		case <-sig:
+			fmt.Fprintln(os.Stderr, "\ninterrupted")
+			return 0
+		case <-time.After(time.Duration(*interval) * time.Second):
+		}
+	}
+	return 0
+}
+
+// ---------------------------------------------------------------------------
 // config
 // ---------------------------------------------------------------------------
 
@@ -539,8 +664,11 @@ USAGE
 
 COMMANDS
     discover <cidr>          sweep an IPv4 range for SNMP agents and identify them
+    discover --asn <n>       resolve an AS number's prefixes and scan them all
+    discover --local         scan this host's private nets + common LAN /24s
     walk <host> [oid]        walk a subtree (default 1.3.6.1.2.1) and print bindings
     get <host> <oid>...      GET one or more objects
+    monitor <host> <oid>...  poll objects on an interval, one line per tick
     identify <host>          fetch and analyse the system group
     config path|show         print the config file path or its contents
     version                  print version information
@@ -559,9 +687,10 @@ COMMON FLAGS
 
 EXAMPLES
     snmpdigger discover 192.168.1.0/24
-    snmpdigger discover 10.0.0.0/24 --communities public,private --json
+    snmpdigger discover --local --communities public,private
+    snmpdigger discover --asn AS13335 --json
     snmpdigger walk 10.0.0.1 1.3.6.1.2.1.2.2
-    snmpdigger get 10.0.0.1 1.3.6.1.2.1.1.5.0 1.3.6.1.2.1.1.6.0
+    snmpdigger monitor 10.0.0.1 1.3.6.1.2.1.2.2.1.10.2 --delta --interval 2
     snmpdigger identify 10.0.0.1 --snmp v3 --user monitor --auth-pass s3cret --priv-pass s3cret
 `)
 }

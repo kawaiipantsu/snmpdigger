@@ -3,6 +3,7 @@ package tui
 import (
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,11 +25,14 @@ import (
 //	SNMPDIGGER_SHOT_GRAPH                 - path for the Graph tab frame
 //	SNMPDIGGER_SHOT_SYSTEM                - path for the System tab frame
 func TestCaptureFrames(t *testing.T) {
-	if os.Getenv("SNMPDIGGER_SHOT_BROWSER") == "" &&
-		os.Getenv("SNMPDIGGER_SHOT_GRAPH") == "" &&
-		os.Getenv("SNMPDIGGER_SHOT_SYSTEM") == "" &&
-		os.Getenv("SNMPDIGGER_SHOT_CATALOG") == "" &&
-		os.Getenv("SNMPDIGGER_SHOT_DISCOVERY") == "" {
+	anyShot := false
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "SNMPDIGGER_SHOT_") && !strings.HasSuffix(e, "=") {
+			anyShot = true
+			break
+		}
+	}
+	if !anyShot {
 		t.Skip("set SNMPDIGGER_SHOT_* to capture frames")
 	}
 
@@ -85,6 +89,27 @@ func TestCaptureFrames(t *testing.T) {
 		})
 	}
 
+	// Interfaces: load the if-table and run a few poll rounds so rates appear
+	_ = m.ifaces.onConnect(m)
+	ift, _ := src.Walk("1.3.6.1.2.1.2")
+	m, _ = updateModel(m, walkResultMsg{root: "1.3.6.1.2.1.2", vars: ift})
+	ifx, _ := src.Walk("1.3.6.1.2.1.31.1.1.1")
+	m, _ = updateModel(m, walkResultMsg{root: "1.3.6.1.2.1.31.1.1.1", vars: ifx})
+	ifBase := time.Now().Add(-6 * time.Second)
+	for i := 0; i < 3; i++ {
+		pv, _ := src.Get(m.ifaces.pollOIDs(m))
+		m, _ = updateModel(m, pollResultMsg{scope: "interfaces", vars: pv, at: ifBase.Add(time.Duration(i*3) * time.Second)})
+	}
+
+	// Watch: pin a few objects and poll them
+	m.watch.add("1.3.6.1.2.1.2.2.1.10.2", "ifIn eth0", snmp.KindCounter)
+	m.watch.add("1.3.6.1.2.1.2.2.1.16.2", "ifOut eth0", snmp.KindCounter)
+	m.watch.add("1.3.6.1.4.1.2021.11.11.0", "ssCpuIdle", snmp.KindInteger)
+	for i := 0; i < 4; i++ {
+		pv, _ := src.Get(m.watch.pollOIDs(m))
+		m, _ = updateModel(m, pollResultMsg{scope: "watch", vars: pv, at: time.Now().Add(time.Duration(i*3) * time.Second)})
+	}
+
 	// scroll the Catalog down so a mid-list module is selected (exercises the
 	// left-pane scroll offset that used to overflow)
 	m.activeTab = tabCatalog
@@ -100,11 +125,13 @@ func TestCaptureFrames(t *testing.T) {
 	m.now = time.Date(2026, 9, 4, 13, 37, 12, 0, time.Local)
 
 	statusFor := map[tabID]string{
-		tabSystem:    "identified forge.lab.thugs.red · Linux host / server · polling every 3s",
-		tabBrowser:   "walk complete — 214 objects under 1.3.6.1.2.1 · polling every 3s",
-		tabGraph:     "graphing lmTempSensorsValue.1 · 90 samples · line chart",
-		tabDiscovery: "ready — enter a CIDR range and press Start scan",
-		tabCatalog:   "catalog: 31 modules · 340 objects · offline reference",
+		tabSystem:     "identified forge.lab.thugs.red · Linux host / server · polling every 3s",
+		tabInterfaces: "interface table: 4 ports · polling every 3s",
+		tabBrowser:    "walk complete — 214 objects under 1.3.6.1.2.1 · polling every 3s",
+		tabGraph:      "graphing lmTempSensorsValue.1 · 90 samples · line chart",
+		tabWatch:      "3 objects watched · saved to ~/.config/snmpdigger/config.yaml",
+		tabDiscovery:  "ready — pick CIDR / ASN / LOCAL and press Start scan",
+		tabCatalog:    "catalog: 31 modules · 340 objects · offline reference",
 	}
 
 	shots := []struct {
@@ -116,6 +143,8 @@ func TestCaptureFrames(t *testing.T) {
 		{"SNMPDIGGER_SHOT_SYSTEM", tabSystem},
 		{"SNMPDIGGER_SHOT_CATALOG", tabCatalog},
 		{"SNMPDIGGER_SHOT_DISCOVERY", tabDiscovery},
+		{"SNMPDIGGER_SHOT_INTERFACES", tabInterfaces},
+		{"SNMPDIGGER_SHOT_WATCH", tabWatch},
 	}
 	for _, s := range shots {
 		path := os.Getenv(s.env)

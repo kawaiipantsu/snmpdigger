@@ -56,7 +56,7 @@ func TestRenderAllTabs(t *testing.T) {
 	m = feed(t, m, pollResultMsg{scope: "browser", vars: poll})
 	m = feed(t, m, pollResultMsg{scope: "system", vars: poll})
 
-	for tab := tabSystem; int(tab) < len(tabNames); tab++ {
+	for tab := tabID(0); int(tab) < len(tabNames); tab++ {
 		m.activeTab = tab
 		out := m.View()
 		if strings.TrimSpace(out) == "" {
@@ -87,7 +87,7 @@ func TestKeyRouting(t *testing.T) {
 		}
 	}
 
-	m = feed(t, m, key("2")) // Browser
+	m = feed(t, m, key("4")) // Browser is the 4th tab
 	if m.activeTab != tabBrowser {
 		t.Fatalf("digit key did not switch to Browser (got %v)", m.activeTab)
 	}

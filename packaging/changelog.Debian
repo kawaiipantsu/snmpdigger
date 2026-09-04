@@ -1,3 +1,19 @@
+snmpdigger (0.2.0-1) unstable; urgency=medium
+
+  * New Interfaces tab: live IF-MIB dashboard with per-port bit/s,
+    utilisation, errors and discards.
+  * New Watch tab: a persistent pin-board of objects with live values,
+    per-second rates and sparklines.
+  * Discovery: scan by AS number (--asn, prefixes resolved via RIPEstat)
+    or across the host's local networks (--local); streaming multi-range
+    sweep with a MaxHosts cap; compact form; pre-filled fast connect.
+  * CSV export (e) from Discovery, Interfaces, Browser and Watch.
+  * New CLI subcommand: monitor (a scriptable watch(1) for SNMP);
+    discover --asn / --local / --max-hosts.
+  * [ ] always switch tabs, even from a focused text field.
+
+ -- kawaiipantsu <12233528+kawaiipantsu@users.noreply.github.com>  Fri, 04 Sep 2026 10:40:00 +0000
+
 snmpdigger (0.1.0-1) unstable; urgency=medium
 
   * Initial release.

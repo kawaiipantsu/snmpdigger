@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -66,6 +67,11 @@ type scanUpdateMsg struct {
 	final bool
 }
 
+type asnResolvedMsg struct {
+	info snmp.ASNInfo
+	err  error
+}
+
 // --- commands ---
 
 func connectCmd(cfg *config.Config, conn config.Connection, demo bool) tea.Cmd {
@@ -107,6 +113,15 @@ func pollCmd(src snmp.Source, scope string, oids []string) tea.Cmd {
 	return func() tea.Msg {
 		vars, err := src.Get(oids)
 		return pollResultMsg{scope: scope, vars: vars, at: time.Now(), err: err}
+	}
+}
+
+func resolveASNCmd(asn string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		info, err := snmp.ResolveASN(ctx, asn)
+		return asnResolvedMsg{info: info, err: err}
 	}
 }
 
